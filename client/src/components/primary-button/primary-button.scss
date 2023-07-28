@@ -1,0 +1,14 @@
+.primary-button {
+  position: fixed;
+  z-index: 2;
+  background-color: var(--primary-color);
+  color: #ffffff;
+  border-radius: 6px;
+  font-size: 20px;
+  border: 0;
+  padding: 0.5em 1em;
+  transform: ease 0.2s;
+  margin: 5px;
+  bottom: 0;
+  right: 30%;
+}

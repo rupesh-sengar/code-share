@@ -1,0 +1,20 @@
+.app {
+  background-color: var(--background-color);
+  padding: 20px;
+  height: 100vh;
+}
+
+.theme-button {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background-color: var(--background-color);
+  border: 10px;
+  border-color: var(--secondary-color);
+  color: var(--text-color);
+  border-radius: 6px;
+  font-size: 20px;
+  padding: 0.5em 1em;
+  transform: ease 0.2s;
+  margin: 5px;
+}

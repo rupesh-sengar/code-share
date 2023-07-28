@@ -1,0 +1,12 @@
+.text-area {
+  width: 70vw;
+  height: 100vh;
+  border: none;
+  background: var(--background-color);
+  color: var(--text-color);
+  resize: none;
+}
+
+.text-area:focus {
+  outline: none;
+}
