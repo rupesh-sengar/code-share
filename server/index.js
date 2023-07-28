@@ -6,7 +6,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 
-app.use(cors);
+app.use(cors());
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -21,6 +21,9 @@ io.on("connection", (socket) => {
   socket.on("message", (msg) => {
     console.log(msg);
     socket.broadcast.emit("receive_msg", msg);
+  });
+  socket.on("error", (error) => {
+    console.log(`Socket Error: ${error.message}`);
   });
 });
 
