@@ -5,23 +5,35 @@ const http = require("http");
 
 const { Server } = require("socket.io");
 const cors = require("cors");
+const dotenv = require("dotenv");
+
+dotenv.config();
 
 app.use(cors());
 const server = http.createServer(app);
 
+console.log(process.env.CLIENT_URL);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: process.env.CLIENT_URL,
     methods: ["GET", "POST"],
   },
 });
 
 io.on("connection", (socket) => {
   console.log("a user connected: ", socket.id);
-  socket.on("message", (msg) => {
-    console.log(msg);
-    socket.broadcast.emit("receive_msg", msg);
+
+  socket.on("join_room", (room) => {
+    socket.join(room);
+    console.log("Type of Room: ", typeof room);
+    console.log(`Socket ${socket.id} joined room: ${room}`);
   });
+
+  socket.on("message", (data) => {
+    console.log(data);
+    socket.to(data.room).emit("receive_msg", data);
+  });
+
   socket.on("error", (error) => {
     console.log(`Socket Error: ${error.message}`);
   });
