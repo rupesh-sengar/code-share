@@ -1,0 +1,21 @@
+.chat-box-button-container {
+  display: flex;
+  height: 100%;
+  border-radius: 50%;
+  justify-content: center;
+  align-items: end;
+}
+
+.chat-box-button {
+  background-color: var(--primary-color);
+  width: 100%;
+  height: 40px;
+  color: #ffffff;
+  border-radius: 50%;
+  font-size: 15px;
+  border: 0;
+  padding: 0.5em 1em;
+  padding: 5px;
+  transform: ease 0.2s;
+  margin-right: 10px;
+}

@@ -1,4 +1,16 @@
+.layout-container {
+  margin: 0;
+}
+
 .hint {
   color: var(--accent-color);
   font-size: 15px;
+}
+
+.message-svg {
+  width: 40px;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  margin: 15px;
 }

@@ -1,0 +1,38 @@
+.chat-box-input-container {
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  align-items: end;
+  margin-right: 10px;
+  margin-left: 10px;
+  width: 90%;
+  @media only screen and (max-width: 1200px) {
+    /*Tablets [601px -> 1200px]*/
+    width: 90%;
+    margin-right: 10px;
+  }
+  @media only screen and (max-width: 600px) {
+    /*Big smartphones [426px -> 600px]*/
+    width: 90%;
+  }
+  @media only screen and (max-width: 425px) {
+    /*Small smartphones [325px -> 425px]*/
+    width: 90%;
+  }
+}
+
+.chat-box-text-area {
+  width: 100%;
+  border: none;
+  color: black;
+  resize: none;
+  border-radius: 6px;
+  font-size: 15px;
+  line-height: 1.25;
+  padding: 5px;
+  font-family: Georgia, "Times New Roman", Times, serif;
+}
+
+.chat-box-text-area:focus {
+  outline: none;
+}

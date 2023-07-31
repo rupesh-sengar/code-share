@@ -1,0 +1,31 @@
+.nav-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.icon {
+  width: 40px;
+}
+
+.project {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.project-name {
+  color: var(--text-color);
+}
+
+.nav-links {
+  list-style: none;
+}
+
+.exit-button {
+  margin-right: 10px;
+}
+
+.exit-svg {
+  width: 40px;
+  height: 40px;
+}

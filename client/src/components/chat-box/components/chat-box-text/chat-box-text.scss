@@ -1,0 +1,30 @@
+.chat-box-text-container {
+  display: flex;
+  width: 100%;
+}
+
+.chat-box-text-container.received {
+  justify-content: flex-end;
+}
+
+.chat-box-text-container.sent {
+  justify-content: flex-start;
+}
+
+.chat-box-text {
+  background-color: #7a7676;
+  border-radius: 5px;
+  max-width: 80%;
+  height: 10%;
+  margin: 5px;
+  padding: 5px;
+  word-wrap: break-word; /* For legacy support, works with overflow-wrap as well */
+  overflow-wrap: break-word; /* The preferred property, works with word-wrap too */
+  color: var(--text-color);
+}
+.chat-box-text.sent {
+}
+
+.chat-box-text.received {
+  background-color: var(--primary-color);
+}
