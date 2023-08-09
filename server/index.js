@@ -23,15 +23,23 @@ const io = new Server(server, {
 io.on("connection", (socket) => {
   console.log("a user connected: ", socket.id);
 
-  socket.on("join_room", (room) => {
-    socket.join(room);
+  socket.on("join_room", (data) => {
+    socket.join(data.room);
     console.log("Type of Room: ", typeof room);
-    console.log(`Socket ${socket.id} joined room: ${room}`);
+    console.log(`${data.user} joined room: ${data.room}`);
   });
 
+  socket.on("joined_user", (data) => {
+    console.log("joined_user is called", data);
+    socket.to(data.room).emit("joined_room", data.user);
+  });
   socket.on("message", (data) => {
     console.log(data);
     socket.to(data.room).emit("receive_msg", data);
+  });
+
+  socket.on("typing", (data) => {
+    socket.to(data.room).emit("typing", data);
   });
 
   socket.on("error", (error) => {
