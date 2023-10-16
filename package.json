@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "react-sound": "^1.2.0",
+    "use-sound": "^4.0.1"
+  }
+}

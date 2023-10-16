@@ -6,30 +6,41 @@ import chatboxlogo from "../../assets/images/chat-box-logo.svg";
 import { ChatBoxMessages } from "../../utils/types";
 import ChatBoxText from "./components/chat-box-text/chat-box-text";
 import { useSelector, useDispatch } from "react-redux";
-import { toggleChatOpen } from "../../store/redux";
-import { useRef, useEffect } from "react";
+import { toggleChatOpen } from "../../store/store";
+import { motion } from "framer-motion";
+import { useInView } from "react-intersection-observer";
+import { useEffect } from "react";
 
-interface ChatBoxProps {
-  messages: ChatBoxMessages[];
-}
-
-interface ChatBoxStateProps {
-  isChatOpen: boolean;
-  messages: ChatBoxMessages[];
-}
-
-const ChatBox = () => {
+const ChatBox = ({ animation }: any) => {
   const dispatch = useDispatch();
   const isChatOpen = useSelector((state: any) => state.chatBox.isChatOpen);
   const messages = useSelector((state: any) => state.chatBox.messages);
 
+  const { ref, inView } = useInView();
+
+  // useEffect(()=>{
+  //   console.log("use effct hook, inView=", inView)
+  // })
   const closeChatBox = () => {
     dispatch(toggleChatOpen());
   };
 
-  console.log({ isChatOpen });
+  const chatBoxVariants = {
+    hidden: { opacity: 0, y: 50 },
+    visible: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: 50 },
+  };
+
+  //console.log({ isChatOpen });
   return (
-    <div className="chat-box-container">
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      exit={{ opacity: 0, y: -50 }}
+      variants={chatBoxVariants}
+      transition={{ duration: 0.3 }}
+      className="chat-box-container"
+    >
       <div className="chat-box-header">
         <img src={chatboxlogo} alt="" className="chat-box-logo" />
         <img
@@ -52,7 +63,7 @@ const ChatBox = () => {
         <ChatBoxInput></ChatBoxInput>
         <ChatBoxButton></ChatBoxButton>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

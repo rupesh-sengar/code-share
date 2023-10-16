@@ -9,6 +9,7 @@
   background-color: #404040;
   border-radius: 6px;
   box-shadow: rgba(238, 236, 236, 0.1) 0px 4px 12px;
+  margin-right: 10px;
 
   @media only screen and (max-width: 1200px) {
     /*Tablets [601px -> 1200px]*/
@@ -36,9 +37,7 @@
 .chat-box-header {
   display: flex;
   justify-content: space-between;
-  width: 100%;
   background-color: var(--secondary-color);
-  height: 5%;
   border-radius: 6px 6px 0 0;
   padding: 5px;
 }

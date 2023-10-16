@@ -6,7 +6,7 @@ import {
   updateChatMessages,
   updateMessage,
   updateEmitMessage,
-} from "../../../../store/redux";
+} from "../../../../store/store";
 
 const ChatBoxButton = () => {
   const dispatch = useDispatch();

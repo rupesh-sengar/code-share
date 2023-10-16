@@ -1,0 +1,22 @@
+.join-alert {
+    position: absolute;
+    top: 50px;
+    right: 10px;
+    background-color: #c0dcf7;
+    padding: 5px;
+    border: 1px solid #e0e0e0;
+    border-radius: 5px;
+    align-items: center;
+    text-align: center;
+    justify-content: center;
+  
+    &__content {
+      &__desc {
+        font-size: 14px;
+        color: #333;
+      }
+      &__username{
+        color: #743d7c
+      }
+    }
+  }

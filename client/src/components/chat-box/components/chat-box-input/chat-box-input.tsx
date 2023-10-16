@@ -1,4 +1,4 @@
-import { updateChatMessages, updateMessage } from "../../../../store/redux";
+import { updateChatMessages, updateMessage } from "../../../../store/store";
 import "./chat-box-input.scss";
 import { useDispatch, useSelector } from "react-redux";
 const ChatBoxInput = () => {
