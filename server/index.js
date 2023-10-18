@@ -12,7 +12,6 @@ dotenv.config();
 app.use(cors());
 const server = http.createServer(app);
 
-console.log(process.env.CLIENT_URL);
 const io = new Server(server, {
   cors: {
     origin: process.env.CLIENT_URL,
