@@ -21,7 +21,10 @@ const io = new Server(server, {
 
 io.on("connection", (socket) => {
   console.log("a user connected: ", socket.id);
-
+  socket.on("handshake", () => {
+    console.log(new Date(), "handshake established");
+    socket.emit("heartbeat", { message: "handshake established" });
+  });
   socket.on("join_room", (data) => {
     socket.join(data.room);
     console.log("Type of Room: ", typeof room);
@@ -33,7 +36,6 @@ io.on("connection", (socket) => {
     socket.to(data.room).emit("joined_room", data.user);
   });
   socket.on("message", (data) => {
-    console.log(data);
     socket.to(data.room).emit("receive_msg", data);
   });
 

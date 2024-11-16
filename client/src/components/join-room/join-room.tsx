@@ -40,12 +40,6 @@ const JoinRoom = () => {
 
   const dispatch = useDispatch();
 
-  // useEffect(() => {
-  //   socket.on("joined_room", (data) => {
-  //     console.log("joined room data: ", data);
-  //   });
-  // });
-
   const onRoomInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setIsRoomError("");
     setRoom(event.target.value);

@@ -8,7 +8,8 @@
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent overlay */
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1; /* Semi-transparent overlay */
 }
 
 .join-room-input {
@@ -18,8 +19,6 @@
   padding: 10px;
   font-family: Georgia, "Times New Roman", Times, serif;
   margin: 10px;
-  //color: var(--text-color);
-  //background-color: var(--secondary-color);
 }
 
 .join-room-input:focus {
@@ -37,8 +36,8 @@
 }
 
 .error {
-  color: rgb(233, 122, 122); 
-  font-size: 14px; 
-  margin-top: 5px; 
-  opacity: 0.8
+  color: rgb(233, 122, 122);
+  font-size: 14px;
+  margin-top: 5px;
+  opacity: 0.8;
 }
