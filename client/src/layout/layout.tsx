@@ -15,7 +15,8 @@ import { useAnimation, AnimatePresence } from "framer-motion";
 import socket from "../utils/socket";
 import { useInView } from "react-intersection-observer";
 import JoinAlert from "../components/join-alert/join-alert";
-import VideoPlayer from "../components/video-player/video-player";
+import FileSender from "../components/file-sender/file-sender";
+import FileReceiver from "../components/file-receiver/file-receiver";
 
 const Layout = ({ randomNumber }: any) => {
   const [text, setText] = useState<string>("");
@@ -28,7 +29,6 @@ const Layout = ({ randomNumber }: any) => {
   const [newUser, setNewUser] = useState<string>("");
 
   const dispatch = useDispatch();
-  const isChatOpen = useSelector((state: any) => state.chatBox.isChatOpen);
   const message = useSelector((state: any) => state.chatBox.message);
   const emitMessage = useSelector((state: any) => state.chatBox.emitMessage);
   const isJoined = useSelector((state: any) => state.joinRoom.isJoined);
@@ -134,6 +134,12 @@ const Layout = ({ randomNumber }: any) => {
         onKeyDown={handleKeyDown}
         onBlur={handleStopTyping}
       ></TextArea>
+      {isJoined && (
+        <div className="file-sharing-container">
+          <FileSender />
+          <FileReceiver />
+        </div>
+      )}
     </div>
   );
 };

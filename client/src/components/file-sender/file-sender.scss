@@ -1,0 +1,45 @@
+.FileSender-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background-color: #2d2d2d;
+  border-radius: 10px;
+  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.25);
+  color: #ffffff;
+
+  &-input {
+    margin-bottom: 10px;
+    padding: 8px;
+    border: 1px solid #444;
+    border-radius: 5px;
+    background-color: #3d3d3d;
+    color: #ffffff;
+    width: 300px;
+    font-size: 16px;
+
+    &:focus {
+      outline: none;
+      border-color: #5a9;
+    }
+  }
+
+  &-fileInput {
+    margin-bottom: 10px;
+    color: #ffffff;
+  }
+
+  &-button {
+    padding: 10px 20px;
+    background-color: #5a9;
+    color: #ffffff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+
+    &:hover {
+      background-color: #47a;
+    }
+  }
+}

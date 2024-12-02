@@ -42,7 +42,10 @@ io.on("connection", (socket) => {
   socket.on("typing", (data) => {
     socket.to(data.room).emit("typing", data);
   });
-
+  socket.on("sendFile", ({ room, chunk, filename, recipientId }) => {
+    console.log(filename, chunk);
+    socket.to(room).emit("receiveFile", { room, chunk, filename });
+  });
   socket.on("error", (error) => {
     console.log(`Socket Error: ${error.message}`);
   });
