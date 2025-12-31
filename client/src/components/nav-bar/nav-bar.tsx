@@ -11,10 +11,24 @@ const NavBar = ({ exitRoomChange }: any) => {
 
   return (
     <ul className="nav-container">
-      <li className="nav-links project">
-        <img src={icon} alt="Icon" className="icon" />
-        <h3 className="project-name">Code Share</h3>
-      </li>
+      <>
+        <li className="nav-links project">
+          <img src={icon} alt="Icon" className="icon" />
+          <h3 className="project-name">Code Share</h3>
+        </li>
+        <li className="nav-links language">
+          <select
+            className="language-select"
+            name="languages"
+            id="languages"
+            title="Select Language"
+          >
+            <option value="javascript">JavaScript</option>
+            <option value="python">Python</option>
+            <option value="java">Java</option>
+          </select>
+        </li>
+      </>
       <li className="nav-links exit-button">
         <motion.img
           initial="initial"

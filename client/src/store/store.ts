@@ -1,26 +1,22 @@
 import { createSlice, configureStore } from "@reduxjs/toolkit";
-import { ChatBoxMessages } from "../utils/types";
+import {
+  chatBoxInitialState,
+  initialAppState,
+  joinRoomInitialState,
+} from "./initial-states";
 
-interface ChatBoxStateProps {
-  isChatOpen: boolean;
-  message: string;
-  messages: ChatBoxMessages[];
-  emitMessage: boolean;
-}
-
-interface JoinRoomProps {
-  loggedInUser: string;
-  room: string;
-  isJoined: boolean;
-}
-
-const chatBoxInitialState: ChatBoxStateProps = {
-  isChatOpen: false,
-  message: "",
-  messages: [],
-  emitMessage: false,
-};
-
+const appSlice = createSlice({
+  name: "appSlice",
+  initialState: initialAppState,
+  reducers: {
+    updateLanguage: (state, action) => {
+      state.language = action.payload;
+    },
+    toggleDarkMode: (state) => {
+      state.darkMode = !state.darkMode;
+    },
+  },
+});
 const chatBoxSlice = createSlice({
   name: "chatBoxSlice",
   initialState: chatBoxInitialState,
@@ -40,19 +36,6 @@ const chatBoxSlice = createSlice({
   },
 });
 
-export const {
-  toggleChatOpen,
-  updateChatMessages,
-  updateMessage,
-  updateEmitMessage,
-} = chatBoxSlice.actions;
-
-const joinRoomInitialState: JoinRoomProps = {
-  loggedInUser: "",
-  room: "",
-  isJoined: false,
-};
-
 const joinRoomSlice = createSlice({
   name: "joinRoomSlice",
   initialState: joinRoomInitialState,
@@ -69,11 +52,20 @@ const joinRoomSlice = createSlice({
   },
 });
 
+export const { updateLanguage, toggleDarkMode } = appSlice.actions;
+export const {
+  toggleChatOpen,
+  updateChatMessages,
+  updateMessage,
+  updateEmitMessage,
+} = chatBoxSlice.actions;
+
 export const { toggleJoinRoom, updateLoggedInUser, updateRoom } =
   joinRoomSlice.actions;
 
 const store = configureStore({
   reducer: {
+    appSlice: appSlice.reducer,
     chatBox: chatBoxSlice.reducer,
     joinRoom: joinRoomSlice.reducer,
   },

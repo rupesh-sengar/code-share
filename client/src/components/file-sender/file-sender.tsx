@@ -49,16 +49,29 @@ const FileSender: React.FC = () => {
   };
 
   return (
-    <div className="FileSender-container">
-      <h2>Send File</h2>
-      <input
-        type="file"
-        className="FileSender-fileInput"
-        onChange={handleFileChange}
-      />
-      <button className="FileSender-button" onClick={sendFile}>
-        Send File
-      </button>
+    <div className="sender-container">
+      <div className="sender-folder">
+        <div className="sender-front-side">
+          <div className="sender-tip"></div>
+          <div className="sender-cover"></div>
+        </div>
+        <div className="sender-back-side sender-cover"></div>
+      </div>
+      {!file && (
+        <label className="sender-custom-file-upload">
+          <input
+            className="sender-title"
+            type="file"
+            onChange={handleFileChange}
+          />
+          Choose a file
+        </label>
+      )}
+      {file && (
+        <label className="sender-custom-file-upload" onClick={sendFile}>
+          Send File
+        </label>
+      )}
     </div>
   );
 };

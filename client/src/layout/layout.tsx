@@ -135,10 +135,14 @@ const Layout = ({ randomNumber }: any) => {
         onBlur={handleStopTyping}
       ></TextArea>
       {isJoined && (
-        <div className="file-sharing-container">
-          <FileSender />
-          <FileReceiver />
-        </div>
+        <>
+          <div className="file-sharing-container">
+            <FileSender />
+          </div>
+          <div className="file-receiving-container">
+            <FileReceiver />
+          </div>
+        </>
       )}
     </div>
   );

@@ -3,6 +3,7 @@
   justify-content: space-between;
   align-items: center;
 }
+
 .icon {
   width: 40px;
 }
@@ -28,4 +29,17 @@
 .exit-svg {
   width: 40px;
   height: 40px;
+}
+
+.language-select {
+  background-color: var(--nav-bg);
+  color: var(--text-color);
+  border: 1px solid var(--text-color);
+  border-radius: 5px;
+  padding: 5px;
+
+  option {
+    background: var(--nav-bg);
+    color: var(--text-color);
+  }
 }
