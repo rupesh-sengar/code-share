@@ -1,44 +1,41 @@
 import * as Y from "yjs";
 import { MonacoBinding } from "y-monaco";
 import { useEffect, useRef } from "react";
-import io from "socket.io-client";
-import * as monaco from "monaco-editor/esm/vs/editor/editor.api
+import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
+import socket from "../../utils/socket";
 
 interface TextAreaProps {
-  value: string;
-  onChange: (event: any) => void;
-  onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  onBlur: (event: React.FocusEvent<HTMLTextAreaElement>) => void;
   room: string;
 }
 
-const socket = io("https://code-share-backend.onrender.com"); // or your server URL
-
-const TextArea = ({
-  value,
-  onChange,
-  onKeyDown,
-  onBlur,
-  room,
-}: TextAreaProps) => {
+const TextArea = ({ room }: TextAreaProps) => {
   const editorContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!room) {
+      return;
+    }
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("monaco");
-
-    // Join the room on the server
-    socket.emit("join_room", { user: "anonymous", room });
+    const normalizeUpdate = (data: ArrayBuffer | Uint8Array | number[]) => {
+      if (data instanceof Uint8Array) {
+        return data;
+      }
+      if (Array.isArray(data)) {
+        return new Uint8Array(data);
+      }
+      return new Uint8Array(data);
+    };
 
     // When the server sends the document state
-    const handleSync = (state: Uint8Array) => {
-      Y.applyUpdate(ydoc, state);
+    const handleSync = (state: ArrayBuffer | Uint8Array | number[]) => {
+      Y.applyUpdate(ydoc, normalizeUpdate(state));
     };
     socket.on("sync", handleSync);
 
     // When the server sends an update from another client
-    const handleUpdate = (update: Uint8Array) => {
-      Y.applyUpdate(ydoc, update);
+    const handleUpdate = (update: ArrayBuffer | Uint8Array | number[]) => {
+      Y.applyUpdate(ydoc, normalizeUpdate(update));
     };
     socket.on("update", handleUpdate);
 
@@ -72,7 +69,12 @@ const TextArea = ({
   }, [room]);
 
   return (
-    <div id="editor" ref={editorContainerRef} style={{ height: "100%" }} />
+    <div
+      id="editor"
+      className="editor"
+      ref={editorContainerRef}
+      style={{ height: "100vh", width: "100vw" }}
+    />
   );
 };
 

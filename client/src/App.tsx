@@ -5,8 +5,6 @@ import socket from "./utils/socket";
 import { useEffect } from "react";
 
 const App = () => {
-  const randomNumber = Math.random();
-
   useEffect(() => {
     const interval = setInterval(() => {
       socket.emit("handshake", {});
@@ -18,7 +16,7 @@ const App = () => {
   }, []);
   return (
     <ThemeProvider>
-      <Layout randomNumber={randomNumber}></Layout>
+      <Layout />
     </ThemeProvider>
   );
 };

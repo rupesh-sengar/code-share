@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { io } from "socket.io-client";
 import { useSelector } from "react-redux";
 import socket from "../../utils/socket";
 import "./file-sender.scss";

@@ -2,6 +2,8 @@ import icon from "../../assets/images/icon-2.png";
 import exit from "../../assets/images/exit-svg.svg";
 import "./nav-bar.scss";
 import { motion } from "framer-motion";
+import { useDispatch } from "react-redux";
+import { updateLanguage } from "../../store/store";
 
 const NavBar = ({ exitRoomChange }: any) => {
   const scaleVariants = {
@@ -9,26 +11,29 @@ const NavBar = ({ exitRoomChange }: any) => {
     hover: { scale: 1.1 },
   };
 
+  const dispatch = useDispatch();
+
   return (
     <ul className="nav-container">
-      <>
-        <li className="nav-links project">
-          <img src={icon} alt="Icon" className="icon" />
-          <h3 className="project-name">Code Share</h3>
-        </li>
-        <li className="nav-links language">
+      <li className="nav-links project">
+        <img src={icon} alt="Icon" className="icon" />
+        <h3 className="project-name">Code Share</h3>
+        <div className="nav-links language">
           <select
-            className="language-select"
+            className="project-name language-select"
             name="languages"
             id="languages"
             title="Select Language"
+            onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
+              dispatch(updateLanguage(event.target.value));
+            }}
           >
             <option value="javascript">JavaScript</option>
             <option value="python">Python</option>
             <option value="java">Java</option>
           </select>
-        </li>
-      </>
+        </div>
+      </li>
       <li className="nav-links exit-button">
         <motion.img
           initial="initial"

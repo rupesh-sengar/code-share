@@ -1,6 +1,6 @@
 import "./join-room.scss";
 import { motion } from "framer-motion";
-import { useSelector, useDispatch } from "react-redux";
+import { useDispatch } from "react-redux";
 import {
   toggleJoinRoom,
   updateLoggedInUser,
@@ -8,12 +8,7 @@ import {
 } from "../../store/store";
 import socket from "../../utils/socket";
 import { z } from "zod";
-import { useState, useEffect } from "react";
-
-interface JoinRoomProps {
-  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onKeyDown: (event: any) => void;
-}
+import { useState } from "react";
 
 const modalVariants = {
   hidden: { opacity: 0, scale: 0.8 },
@@ -25,11 +20,6 @@ const scaleVariants = {
   initial: { scale: 1 },
   hover: { scale: 1.1 },
 };
-
-const schema = z.object({
-  username: z.string().min(1),
-  room: z.string().min(1),
-});
 
 const JoinRoom = () => {
   // Variant for the modal animations
@@ -46,20 +36,14 @@ const JoinRoom = () => {
   };
 
   const onLoggedInUserInputChange = (
-    event: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     setIsUserError("");
     setUser(event.target.value);
   };
 
   const joinRoom = () => {
-    const userInput = {
-      username: user,
-      room: room,
-    };
-
     try {
-      const validatedData = schema.parse(userInput);
       socket.emit("join_room", { room, user });
       socket.emit("joined_user", { room, user });
       dispatch(updateRoom(room));

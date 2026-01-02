@@ -1,5 +1,4 @@
 import "./join-alert.scss";
-import { useSelector } from "react-redux";
 import { motion } from "framer-motion";
 import { useEffect } from "react";
 import notification from "../../assets/sounds/notification.mp3";
@@ -15,8 +14,6 @@ interface JoinAlertProps {
 }
 
 const JoinAlert = ({ username }: JoinAlertProps) => {
-  const user = useSelector((state: any) => state.joinRoom.loggedInUser);
-  //const [sound] = useSound("../../assets/sounds/notification.mp3");
   useEffect(() => {
     const audio = new Audio(notification);
     audio.play();
@@ -25,11 +22,8 @@ const JoinAlert = ({ username }: JoinAlertProps) => {
       audio.pause();
       audio.currentTime = 0;
     };
-    // const targetAudio = document.getElementsByClassName("audioSource")[0];
-    // targetAudio.play();
   }, []);
 
-  //console.log("user: ", user);
   return (
     <motion.div
       initial="hidden"

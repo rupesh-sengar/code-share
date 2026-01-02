@@ -5,12 +5,7 @@ import JoinRoom from "../components/join-room/join-room";
 import "./layout.scss";
 
 import { useSelector, useDispatch } from "react-redux";
-import {
-  toggleJoinRoom,
-  updateChatMessages,
-  updateEmitMessage,
-  updateMessage,
-} from "../store/store";
+import { toggleJoinRoom } from "../store/store";
 import { useAnimation, AnimatePresence } from "framer-motion";
 import socket from "../utils/socket";
 import { useInView } from "react-intersection-observer";
@@ -18,24 +13,14 @@ import JoinAlert from "../components/join-alert/join-alert";
 import FileSender from "../components/file-sender/file-sender";
 import FileReceiver from "../components/file-receiver/file-receiver";
 
-const Layout = ({ randomNumber }: any) => {
-  const [text, setText] = useState<string>("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [cursorPosition, setCursorPosition] = useState({
-    x: 0,
-    y: 0,
-    newCols: 40,
-  });
+const Layout = () => {
   const [newUser, setNewUser] = useState<string>("");
 
   const dispatch = useDispatch();
-  const message = useSelector((state: any) => state.chatBox.message);
-  const emitMessage = useSelector((state: any) => state.chatBox.emitMessage);
   const isJoined = useSelector((state: any) => state.joinRoom.isJoined);
-  console.log("🚀 ~ Layout ~ isJoined:", isJoined);
   const room = useSelector((state: any) => state.joinRoom.room);
 
-  const { ref, inView } = useInView();
+  const { inView } = useInView();
   const animation = useAnimation();
 
   useEffect(() => {
@@ -47,76 +32,38 @@ const Layout = ({ randomNumber }: any) => {
           duration: 1,
         },
       });
+      return;
     }
-    if (!inView) {
-      animation.start({
-        x: "-100vw",
-      });
-    }
-    if (emitMessage) {
-      socket.emit("message", {
-        room,
-        message,
-        id: randomNumber,
-        type: "chat",
-      });
-    }
-    socket.on("receive_msg", (data) => {
-      if (data.type === "chat") {
-        if (randomNumber !== data.id)
-          dispatch(
-            updateChatMessages({ type: "received", message: data.message })
-          );
-
-        dispatch(updateMessage(""));
-        dispatch(updateEmitMessage(false));
-      } else {
-        if (randomNumber !== data.id) {
-          setIsTyping(true);
-          setText(data.message);
-        }
-      }
+    animation.start({
+      x: "-100vw",
     });
-    socket.on("joined_room", (data) => {
+  }, [inView, animation]);
+
+  useEffect(() => {
+    if (!isJoined || !room) {
+      return;
+    }
+    let clearNewUserTimeout: ReturnType<typeof setTimeout> | null = null;
+    const handleJoinedRoom = (data: any) => {
       setNewUser(data);
-      setTimeout(() => setNewUser(""), 3000);
-    });
-  }, [
-    text,
-    randomNumber,
-    emitMessage,
-    message,
-    inView,
-    room,
-    animation,
-    dispatch,
-  ]);
+      if (clearNewUserTimeout) {
+        clearTimeout(clearNewUserTimeout);
+      }
+      clearNewUserTimeout = setTimeout(() => setNewUser(""), 3000);
+    };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter") {
-      console.log("Enter key pressed!");
-    }
-  };
+    socket.on("joined_room", handleJoinedRoom);
 
-  const handleTextAreaChange = (event: any): void => {
-    let message = event;
-    setText(message);
-    socket.emit("typing", { room, isRemoteTyping: true });
-    socket.emit("message", {
-      room,
-      message,
-      id: randomNumber,
-      type: "code",
-    });
-  };
+    return () => {
+      if (clearNewUserTimeout) {
+        clearTimeout(clearNewUserTimeout);
+      }
+      socket.off("joined_room", handleJoinedRoom);
+    };
+  }, [isJoined, room]);
 
   const exitRoomChange = () => {
-    setText("");
     dispatch(toggleJoinRoom(false));
-  };
-
-  const handleStopTyping = () => {
-    socket.emit("typing", { room, isRemoteTyping: false });
   };
 
   return (
@@ -127,13 +74,7 @@ const Layout = ({ randomNumber }: any) => {
         {!isJoined && <JoinRoom></JoinRoom>}
       </AnimatePresence>
 
-      <TextArea
-        value={text}
-        cursorPosition={cursorPosition}
-        onChange={handleTextAreaChange}
-        onKeyDown={handleKeyDown}
-        onBlur={handleStopTyping}
-      ></TextArea>
+      {isJoined && <TextArea room={room} />}
       {isJoined && (
         <>
           <div className="file-sharing-container">
