@@ -4,6 +4,9 @@ import cors from "cors";
 import { CLIENT_URL } from "./config";
 import { createServer } from "http";
 import router from "./routes/code.route";
+import { setupWSConnection } from "@y/websocket-server/src/utils";
+import { getOrCreateDoc } from "./yjs-server";
+import * as Y from "yjs";
 
 const app: express.Application = express();
 const server = createServer(app);
@@ -13,20 +16,34 @@ app.use("/", router);
 
 const io = new Server(server, {
   cors: {
-    origin: CLIENT_URL,
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
 
 io.on("connection", (socket) => {
   console.log("a user connected: ", socket.id);
-  socket.on("handshake", () => {
-    console.log(new Date(), "handshake established");
-    socket.emit("heartbeat", { message: "handshake established" });
+  socket.on("join_room", ({ room }) => {
+    const prevRoom = socket.data.room;
+    if (prevRoom && prevRoom !== room) socket.leave(prevRoom);
+
+    socket.join(room);
+    socket.data.room = room;
+
+    const doc = getOrCreateDoc(room);
+    socket.emit("sync", Y.encodeStateAsUpdate(doc));
   });
-  socket.on("join_room", (data: { user: string; room: string }) => {
-    socket.join(data.room);
-    console.log("User: ", data.user, "joined room:", data.room);
+
+  socket.on("update", (payload) => {
+    const update = payload?.update ?? payload;
+    const roomName = payload?.room ?? socket.data.room;
+    if (!roomName || !update) return;
+
+    const doc = getOrCreateDoc(roomName);
+    const bytes =
+      update instanceof Uint8Array ? update : new Uint8Array(update);
+    Y.applyUpdate(doc, bytes);
+    socket.to(roomName).emit("update", bytes);
   });
 
   socket.on("joined_user", (data: { user: string; room: string }) => {
