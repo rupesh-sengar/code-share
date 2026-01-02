@@ -9,6 +9,7 @@
     "emitDecoratorMetadata": true,
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "node",
+    "skipLibCheck": true,
     "module": "commonjs",
     "pretty": true,
     "sourceMap": true,
@@ -31,9 +32,9 @@
       "@middlewares/*": ["middlewares/*"],
       "@routes/*": ["routes/*"],
       "@services/*": ["services/*"],
-      "@utils/*": ["utils/*"]
-    }
+      "@utils/*": ["utils/*"],
+    },
   },
   "include": ["src/**/*.ts", "src/**/*.json", ".env", "src/config"],
-  "exclude": ["node_modules", "src/http", "src/logs"]
+  "exclude": ["node_modules", "src/http", "src/logs"],
 }
