@@ -46,6 +46,13 @@ io.on("connection", (socket) => {
     socket.to(roomName).emit("update", bytes);
   });
 
+  socket.on("awareness", (update: Uint8Array | number[]) => {
+    const roomName = socket.data.room;
+    if (roomName) {
+      socket.to(roomName).emit("awareness", update);
+    }
+  });
+
   socket.on("joined_user", (data: { user: string; room: string }) => {
     console.log("joined_user is called", data);
     socket.to(data.room).emit("joined_room", data.user);
