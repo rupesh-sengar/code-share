@@ -18,7 +18,7 @@ const NavBar = ({ exitRoomChange }: any) => {
       <li className="nav-links project">
         <img src={icon} alt="Icon" className="icon" />
         <h3 className="project-name">Code Share</h3>
-        <div className="nav-links language">
+        {/*<div className="nav-links language">
           <select
             className="project-name language-select"
             name="languages"
@@ -32,7 +32,7 @@ const NavBar = ({ exitRoomChange }: any) => {
             <option value="python">Python</option>
             <option value="java">Java</option>
           </select>
-        </div>
+        </div>*/}
       </li>
       <li className="nav-links exit-button">
         <motion.img

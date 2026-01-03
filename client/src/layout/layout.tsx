@@ -19,6 +19,9 @@ const Layout = () => {
   const dispatch = useDispatch();
   const isJoined = useSelector((state: any) => state.joinRoom.isJoined);
   const room = useSelector((state: any) => state.joinRoom.room);
+  const user = useSelector((state: any) => state.joinRoom.loggedInUser);
+
+  console.log({ user });
 
   const { inView } = useInView();
   const animation = useAnimation();
@@ -74,8 +77,8 @@ const Layout = () => {
         {!isJoined && <JoinRoom></JoinRoom>}
       </AnimatePresence>
 
-      {isJoined && <TextArea room={room} />}
-      {isJoined && (
+      {isJoined && <TextArea room={room} currentUser={user || "Anonymous"} />}
+      {/*{isJoined && (
         <>
           <div className="file-sharing-container">
             <FileSender />
@@ -84,7 +87,7 @@ const Layout = () => {
             <FileReceiver />
           </div>
         </>
-      )}
+      )}*/}
     </div>
   );
 };
