@@ -7,7 +7,9 @@ import { useEffect } from "react";
 const App = () => {
   useEffect(() => {
     const interval = setInterval(() => {
-      socket.emit("handshake", {});
+      if (socket.connected) {
+        socket.emit("handshake", {});
+      }
     }, 60000);
     return () => {
       clearInterval(interval);

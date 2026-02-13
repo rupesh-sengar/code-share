@@ -16,7 +16,20 @@ interface JoinAlertProps {
 const JoinAlert = ({ username }: JoinAlertProps) => {
   useEffect(() => {
     const audio = new Audio(notification);
-    audio.play();
+    const playPromise = audio.play();
+
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch((error: unknown) => {
+        // Browsers can block autoplay without prior user interaction.
+        // Ignore that expected case and avoid unhandled promise rejections.
+        const errorName = error instanceof Error ? error.name : "";
+        if (errorName === "NotAllowedError") {
+          return;
+        }
+        console.error("Unable to play join notification sound:", error);
+      });
+    }
+
     // Clean up the audio when the component unmounts
     return () => {
       audio.pause();

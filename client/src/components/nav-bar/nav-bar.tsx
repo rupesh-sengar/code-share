@@ -2,16 +2,39 @@ import icon from "../../assets/images/icon-2.png";
 import exit from "../../assets/images/exit-svg.svg";
 import "./nav-bar.scss";
 import { motion } from "framer-motion";
-import { useDispatch } from "react-redux";
-import { updateLanguage } from "../../store/store";
 
-const NavBar = ({ exitRoomChange }: any) => {
+type ServerConnectionStatus =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected";
+
+interface NavBarProps {
+  exitRoomChange: () => void;
+  reconnectAttempts: number;
+  serverStatus: ServerConnectionStatus;
+}
+
+const NavBar = ({
+  exitRoomChange,
+  reconnectAttempts,
+  serverStatus,
+}: NavBarProps) => {
   const scaleVariants = {
     initial: { scale: 1 },
     hover: { scale: 1.1 },
   };
 
-  const dispatch = useDispatch();
+  const getServerStatusLabel = () => {
+    if (serverStatus === "connected") return "Connected";
+    if (serverStatus === "connecting") return "Connecting";
+    if (serverStatus === "reconnecting") {
+      return reconnectAttempts > 0
+        ? `Reconnecting (${reconnectAttempts})`
+        : "Reconnecting";
+    }
+    return "Disconnected";
+  };
 
   return (
     <ul className="nav-container">
@@ -34,7 +57,11 @@ const NavBar = ({ exitRoomChange }: any) => {
           </select>
         </div>*/}
       </li>
-      <li className="nav-links exit-button">
+      <li className="nav-links nav-actions">
+        <div className={`server-status server-status-${serverStatus}`}>
+          <span className="server-status-dot"></span>
+          <span className="server-status-text">{getServerStatusLabel()}</span>
+        </div>
         <motion.img
           initial="initial"
           whileHover="hover"

@@ -21,6 +21,11 @@ const scaleVariants = {
   hover: { scale: 1.1 },
 };
 
+const validationSchema = z.object({
+  user: z.string().min(2, "Name must be at least 2 characters").max(20),
+  room: z.string().min(3, "Room must be at least 3 characters"),
+});
+
 const JoinRoom = () => {
   // Variant for the modal animations
   const [isUserError, setIsUserError] = useState<string>("");
@@ -44,22 +49,33 @@ const JoinRoom = () => {
 
   const joinRoom = () => {
     try {
+      setIsUserError("");
+      setIsRoomError("");
+
+      const validationResult = validationSchema.safeParse({ user, room });
+      if (!validationResult.success) {
+        console.error("Join room validation failed:", {
+          user,
+          room,
+          issues: validationResult.error.issues,
+        });
+
+        validationResult.error.issues.forEach((individualError) => {
+          if (individualError.path[0] === "room")
+            setIsRoomError(`*${individualError.message}`);
+          if (individualError.path[0] === "user")
+            setIsUserError(`*${individualError.message}`);
+        });
+        return;
+      }
+
       socket.emit("join_room", { room, user });
       socket.emit("joined_user", { room, user });
       dispatch(updateRoom(room));
       dispatch(updateLoggedInUser(user));
       dispatch(toggleJoinRoom(true));
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        console.error("Validation error:", error.message);
-        error.errors.forEach((individualError) => {
-          if (individualError.path[0] === "room")
-            setIsRoomError("*Room is required");
-          else setIsUserError("*Name is required");
-        });
-      } else {
-        console.error("An unexpected error occurred:", error);
-      }
+      console.error("Join room failed unexpectedly:", error);
     }
   };
 
