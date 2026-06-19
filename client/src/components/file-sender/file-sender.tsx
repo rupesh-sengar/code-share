@@ -3,16 +3,20 @@ import { useSelector } from "react-redux";
 import socket from "../../utils/socket";
 import "./file-sender.scss";
 
-const CHUNK_SIZE = 128 * 1024;
-const ACK_TIMEOUT_MS = 12000;
-const READY_TIMEOUT_MS = 12000;
-const MAX_CHUNK_RETRIES = 4;
+const CHUNK_SIZE = 256 * 1024;
+const CONNECTION_TIMEOUT_MS = 15000;
+const BUFFER_LOW_THRESHOLD = 512 * 1024;
+const MAX_BUFFERED_AMOUNT = 2 * 1024 * 1024;
+
+const RTC_CONFIGURATION: RTCConfiguration = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+};
 
 type SenderStatus =
   | "idle"
   | "waiting"
+  | "connecting"
   | "sending"
-  | "paused"
   | "completed"
   | "failed";
 
@@ -33,10 +37,28 @@ type FileTransferMeta = {
   senderName: string;
 };
 
-type PendingWaiter = {
-  resolve: () => void;
-  reject: (error: Error) => void;
-  timeoutId: ReturnType<typeof setTimeout>;
+type PeerState = {
+  channel: RTCDataChannel;
+  connection: RTCPeerConnection;
+  confirmed: boolean;
+  pendingCandidates: RTCIceCandidateInit[];
+};
+
+type WebRtcAnswerPayload = {
+  transferId: string;
+  receiverId: string;
+  description: RTCSessionDescriptionInit;
+};
+
+type WebRtcIceCandidatePayload = {
+  transferId: string;
+  fromId: string;
+  candidate: RTCIceCandidateInit;
+};
+
+type WebRtcReadyPayload = {
+  transferId: string;
+  receiverId: string;
 };
 
 const formatBytes = (bytes: number) => {
@@ -63,6 +85,28 @@ const createTransferId = () => {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
+const createChunkPacket = (chunkIndex: number, chunk: ArrayBuffer) => {
+  const packet = new ArrayBuffer(8 + chunk.byteLength);
+  const view = new DataView(packet);
+  view.setUint32(0, chunkIndex);
+  view.setUint32(4, chunk.byteLength);
+  new Uint8Array(packet, 8).set(new Uint8Array(chunk));
+  return packet;
+};
+
+const parseControlMessage = (payload: unknown) => {
+  if (typeof payload !== "string") return null;
+
+  try {
+    return JSON.parse(payload) as {
+      messageType?: string;
+      [key: string]: unknown;
+    };
+  } catch {
+    return null;
+  }
+};
+
 const FileSender: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<SenderStatus>("idle");
@@ -74,132 +118,236 @@ const FileSender: React.FC = () => {
     (state: any) => state.joinRoom.loggedInUser || "Anonymous",
   );
 
-  const readyWaitersRef = useRef<Map<string, PendingWaiter>>(new Map());
-  const chunkAckWaitersRef = useRef<Map<string, PendingWaiter>>(new Map());
-  const activeTransferIdRef = useRef<string>("");
+  const activeTransferRef = useRef<FileTransferMeta | null>(null);
   const cancelledRef = useRef<boolean>(false);
+  const peersRef = useRef<Map<string, PeerState>>(new Map());
 
-  const isBusy = status === "waiting" || status === "sending" || status === "paused";
+  const isBusy =
+    status === "waiting" || status === "connecting" || status === "sending";
   const progressLabel = useMemo(() => `${Math.round(progress)}%`, [progress]);
 
+  const closePeers = () => {
+    peersRef.current.forEach(({ channel, connection }) => {
+      channel.close();
+      connection.close();
+    });
+    peersRef.current.clear();
+  };
+
   useEffect(() => {
-    const readyWaiters = readyWaitersRef.current;
-    const chunkAckWaiters = chunkAckWaitersRef.current;
+    const handlePeerReady = async ({
+      transferId,
+      receiverId,
+    }: WebRtcReadyPayload) => {
+      const activeTransfer = activeTransferRef.current;
+      if (!activeTransfer || activeTransfer.transferId !== transferId) return;
+      if (peersRef.current.has(receiverId)) return;
 
-    const handlePeerReady = ({ transferId }: { transferId: string }) => {
-      const waiter = readyWaitersRef.current.get(transferId);
-      if (!waiter) return;
-
-      clearTimeout(waiter.timeoutId);
-      readyWaitersRef.current.delete(transferId);
-      waiter.resolve();
+      try {
+        await createPeerConnection(receiverId, activeTransfer);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Could not create WebRTC offer.";
+        setStatus("failed");
+        setStatusMessage(message);
+      }
     };
 
-    const handleChunkAck = ({
+    const handleAnswer = async ({
       transferId,
-      chunkIndex,
+      receiverId,
+      description,
+    }: WebRtcAnswerPayload) => {
+      const activeTransfer = activeTransferRef.current;
+      if (!activeTransfer || activeTransfer.transferId !== transferId) return;
+
+      const peer = peersRef.current.get(receiverId);
+      if (!peer) return;
+
+      await peer.connection.setRemoteDescription(
+        new RTCSessionDescription(description),
+      );
+
+      const candidates = peer.pendingCandidates.splice(0);
+      await Promise.all(
+        candidates.map((candidate) =>
+          peer.connection.addIceCandidate(new RTCIceCandidate(candidate)),
+        ),
+      );
+    };
+
+    const handleIceCandidate = async ({
+      transferId,
+      fromId,
+      candidate,
+    }: WebRtcIceCandidatePayload) => {
+      const activeTransfer = activeTransferRef.current;
+      if (!activeTransfer || activeTransfer.transferId !== transferId) return;
+
+      const peer = peersRef.current.get(fromId);
+      if (!peer) return;
+
+      if (!peer.connection.remoteDescription) {
+        peer.pendingCandidates.push(candidate);
+        return;
+      }
+
+      await peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
+    };
+
+    const handleCancel = ({
+      transferId,
+      message,
     }: {
       transferId: string;
-      chunkIndex: number;
+      message?: string;
     }) => {
-      const waiterKey = `${transferId}:${chunkIndex}`;
-      const waiter = chunkAckWaitersRef.current.get(waiterKey);
-      if (!waiter) return;
+      const activeTransfer = activeTransferRef.current;
+      if (!activeTransfer || activeTransfer.transferId !== transferId) return;
 
-      clearTimeout(waiter.timeoutId);
-      chunkAckWaitersRef.current.delete(waiterKey);
-      waiter.resolve();
+      closePeers();
+      activeTransferRef.current = null;
+      setStatus("failed");
+      setStatusMessage(message || "Receiver cancelled the transfer.");
     };
 
-    const handleDisconnect = () => {
-      if (activeTransferIdRef.current) {
-        setStatus("paused");
-        setStatusMessage("Connection lost. Waiting to resume...");
-      }
-    };
-
-    const handleConnect = () => {
-      if (activeTransferIdRef.current) {
-        setStatus("sending");
-        setStatusMessage("Connection restored. Resuming transfer...");
-      }
-    };
-
-    socket.on("file:ready", handlePeerReady);
-    socket.on("file:chunk-ack", handleChunkAck);
-    socket.on("disconnect", handleDisconnect);
-    socket.on("connect", handleConnect);
+    socket.on("webrtc:file-ready", handlePeerReady);
+    socket.on("webrtc:file-answer", handleAnswer);
+    socket.on("webrtc:ice-candidate", handleIceCandidate);
+    socket.on("webrtc:file-cancel", handleCancel);
 
     return () => {
-      socket.off("file:ready", handlePeerReady);
-      socket.off("file:chunk-ack", handleChunkAck);
-      socket.off("disconnect", handleDisconnect);
-      socket.off("connect", handleConnect);
-
-      readyWaiters.forEach((waiter) => {
-        clearTimeout(waiter.timeoutId);
-        waiter.reject(new Error("File sender closed."));
-      });
-      chunkAckWaiters.forEach((waiter) => {
-        clearTimeout(waiter.timeoutId);
-        waiter.reject(new Error("File sender closed."));
-      });
-      readyWaiters.clear();
-      chunkAckWaiters.clear();
+      socket.off("webrtc:file-ready", handlePeerReady);
+      socket.off("webrtc:file-answer", handleAnswer);
+      socket.off("webrtc:ice-candidate", handleIceCandidate);
+      socket.off("webrtc:file-cancel", handleCancel);
+      closePeers();
     };
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0] ?? null;
-    setFile(selectedFile);
-    setProgress(0);
-    setStatus(selectedFile ? "idle" : status);
-    setStatusMessage(selectedFile ? "" : "Choose a file to share.");
-  };
-
-  const createWaiter = (
-    waiters: React.MutableRefObject<Map<string, PendingWaiter>>,
-    key: string,
-    timeoutMs: number,
-    timeoutMessage: string,
+  const createPeerConnection = async (
+    receiverId: string,
+    meta: FileTransferMeta,
   ) => {
-    const existingWaiter = waiters.current.get(key);
-    if (existingWaiter) {
-      clearTimeout(existingWaiter.timeoutId);
-      existingWaiter.reject(new Error("Superseded by a newer transfer step."));
-      waiters.current.delete(key);
-    }
-
-    let pendingWaiter: PendingWaiter;
-    const promise = new Promise<void>((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        waiters.current.delete(key);
-        reject(new Error(timeoutMessage));
-      }, timeoutMs);
-
-      pendingWaiter = { resolve, reject, timeoutId };
-      waiters.current.set(key, pendingWaiter);
+    const connection = new RTCPeerConnection(RTC_CONFIGURATION);
+    const channel = connection.createDataChannel(`file-${meta.transferId}`, {
+      ordered: true,
     });
+    channel.binaryType = "arraybuffer";
+    channel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
 
-    const cancel = () => {
-      const waiter = waiters.current.get(key);
-      if (!waiter) return;
+    const peerState: PeerState = {
+      channel,
+      connection,
+      confirmed: false,
+      pendingCandidates: [],
+    };
+    peersRef.current.set(receiverId, peerState);
 
-      clearTimeout(waiter.timeoutId);
-      waiters.current.delete(key);
-      waiter.reject(new Error("Transfer cancelled."));
+    connection.onicecandidate = ({ candidate }) => {
+      if (!candidate) return;
+
+      socket.emit("webrtc:ice-candidate", {
+        room: meta.room,
+        transferId: meta.transferId,
+        targetId: receiverId,
+        candidate: candidate.toJSON(),
+      });
     };
 
-    return { promise, cancel };
+    connection.onconnectionstatechange = () => {
+      if (
+        !cancelledRef.current &&
+        activeTransferRef.current?.transferId === meta.transferId &&
+        connection.connectionState === "disconnected"
+      ) {
+        setStatus("connecting");
+        setStatusMessage("Peer connection interrupted. Waiting...");
+        return;
+      }
+
+      if (
+        !cancelledRef.current &&
+        activeTransferRef.current?.transferId === meta.transferId &&
+        ["failed", "closed"].includes(connection.connectionState)
+      ) {
+        setStatus("failed");
+        setStatusMessage("Direct connection was interrupted.");
+      }
+    };
+
+    channel.onopen = () => {
+      setStatus("connecting");
+      setStatusMessage("Direct peer connection ready.");
+    };
+
+    channel.onmessage = ({ data }) => {
+      const message = parseControlMessage(data);
+      if (message?.messageType !== "received") return;
+
+      const peer = peersRef.current.get(receiverId);
+      if (peer) {
+        peer.confirmed = true;
+      }
+    };
+
+    channel.onerror = () => {
+      if (activeTransferRef.current?.transferId === meta.transferId) {
+        setStatus("failed");
+        setStatusMessage("Data channel failed.");
+      }
+    };
+
+    const offer = await connection.createOffer();
+    await connection.setLocalDescription(offer);
+
+    socket.emit("webrtc:file-offer", {
+      ...meta,
+      targetId: receiverId,
+      description: connection.localDescription?.toJSON(),
+    });
   };
 
-  const emitWithAck = <TPayload,>(
-    eventName: string,
-    payload: TPayload,
-    timeoutMs = ACK_TIMEOUT_MS,
-  ) =>
+  const waitForOpenChannels = (expectedRecipients: number) =>
+    new Promise<RTCDataChannel[]>((resolve, reject) => {
+      const startedAt = Date.now();
+
+      const check = () => {
+        if (cancelledRef.current) {
+          reject(new Error("Transfer cancelled."));
+          return;
+        }
+
+        const openChannels = Array.from(peersRef.current.values())
+          .map((peer) => peer.channel)
+          .filter((channel) => channel.readyState === "open");
+
+        if (openChannels.length >= expectedRecipients) {
+          resolve(openChannels);
+          return;
+        }
+
+        if (Date.now() - startedAt > CONNECTION_TIMEOUT_MS) {
+          if (openChannels.length > 0) {
+            resolve(openChannels);
+            return;
+          }
+
+          reject(new Error("No direct peer connection could be established."));
+          return;
+        }
+
+        window.setTimeout(check, 100);
+      };
+
+      check();
+    });
+
+  const emitWithAck = <TPayload,>(eventName: string, payload: TPayload) =>
     new Promise<ServerAck>((resolve, reject) => {
-      socket.timeout(timeoutMs).emit(
+      socket.timeout(CONNECTION_TIMEOUT_MS).emit(
         eventName,
         payload,
         (error: Error | null, response?: ServerAck) => {
@@ -218,32 +366,74 @@ const FileSender: React.FC = () => {
       );
     });
 
-  const waitForConnection = () =>
-    new Promise<void>((resolve) => {
-      if (socket.connected) {
-        resolve();
+  const waitForBufferedAmount = (channel: RTCDataChannel) =>
+    new Promise<void>((resolve, reject) => {
+      if (channel.readyState !== "open") {
+        reject(new Error("Data channel is not open."));
         return;
       }
 
-      setStatus("paused");
-      setStatusMessage("Waiting for the socket connection...");
-      socket.once("connect", () => resolve());
+      if (channel.bufferedAmount <= MAX_BUFFERED_AMOUNT) {
+        resolve();
+      return;
+    }
+
+      let timeoutId: number;
+      const handleLowBuffer = () => {
+        window.clearTimeout(timeoutId);
+        channel.removeEventListener("bufferedamountlow", handleLowBuffer);
+        resolve();
+      };
+
+      timeoutId = window.setTimeout(() => {
+        channel.removeEventListener("bufferedamountlow", handleLowBuffer);
+        reject(new Error("Peer connection buffer stayed full too long."));
+      }, CONNECTION_TIMEOUT_MS);
+
+      channel.addEventListener("bufferedamountlow", handleLowBuffer);
     });
+
+  const sendToChannels = async (
+    channels: RTCDataChannel[],
+    payload: string | ArrayBuffer,
+  ) => {
+    await Promise.all(
+      channels.map(async (channel) => {
+        await waitForBufferedAmount(channel);
+        if (typeof payload === "string") {
+          channel.send(payload);
+          return;
+        }
+
+        channel.send(payload);
+      }),
+    );
+  };
 
   const cancelTransfer = () => {
     cancelledRef.current = true;
+    const activeTransfer = activeTransferRef.current;
 
-    if (activeTransferIdRef.current && room) {
-      socket.emit("file:cancel", {
-        room,
-        transferId: activeTransferIdRef.current,
+    if (activeTransfer) {
+      socket.emit("webrtc:file-cancel", {
+        room: activeTransfer.room,
+        transferId: activeTransfer.transferId,
         message: "Sender cancelled the transfer.",
       });
     }
 
+    closePeers();
+    activeTransferRef.current = null;
     setStatus("idle");
     setStatusMessage("Transfer cancelled.");
-    activeTransferIdRef.current = "";
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0] ?? null;
+    setFile(selectedFile);
+    setProgress(0);
+    setStatus(selectedFile ? "idle" : status);
+    setStatusMessage(selectedFile ? "" : "Choose a file to share.");
   };
 
   const sendFile = async () => {
@@ -256,6 +446,9 @@ const FileSender: React.FC = () => {
       setStatusMessage("Join a room before sharing files.");
       return;
     }
+
+    closePeers();
+    cancelledRef.current = false;
 
     const transferId = createTransferId();
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -270,26 +463,29 @@ const FileSender: React.FC = () => {
       senderName,
     };
 
-    cancelledRef.current = false;
-    activeTransferIdRef.current = transferId;
+    activeTransferRef.current = meta;
     setStatus("waiting");
     setProgress(0);
-    setStatusMessage("Waiting for a receiver...");
-
-    const readyWaiter = createWaiter(
-      readyWaitersRef,
-      transferId,
-      READY_TIMEOUT_MS,
-      "No receiver confirmed the transfer.",
-    );
+    setStatusMessage("Finding receivers...");
 
     try {
-      await waitForConnection();
-      await emitWithAck("file:offer", meta);
-      await readyWaiter.promise;
+      const ack = await emitWithAck("webrtc:file-request", meta);
+      const expectedRecipients = Math.max(ack.recipients || 0, 1);
+
+      setStatus("connecting");
+      setStatusMessage("Creating direct peer connection...");
+
+      const channels = await waitForOpenChannels(expectedRecipients);
+      await sendToChannels(
+        channels,
+        JSON.stringify({
+          messageType: "manifest",
+          ...meta,
+        }),
+      );
 
       setStatus("sending");
-      setStatusMessage("Sending file...");
+      setStatusMessage(`Sending directly to ${channels.length} peer(s)...`);
 
       for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
         if (cancelledRef.current) {
@@ -300,61 +496,31 @@ const FileSender: React.FC = () => {
         const chunk = await file
           .slice(start, Math.min(start + CHUNK_SIZE, file.size))
           .arrayBuffer();
+        const packet = createChunkPacket(chunkIndex, chunk);
 
-        let sent = false;
-        let retryCount = 0;
-
-        while (!sent) {
-          if (cancelledRef.current) {
-            throw new Error("Transfer cancelled.");
-          }
-
-          await waitForConnection();
-
-          const waiterKey = `${transferId}:${chunkIndex}`;
-          const chunkAckWaiter = createWaiter(
-            chunkAckWaitersRef,
-            waiterKey,
-            ACK_TIMEOUT_MS,
-            "Receiver did not acknowledge the chunk.",
-          );
-
-          try {
-            await emitWithAck("file:chunk", {
-              ...meta,
-              chunkIndex,
-              chunk,
-            });
-            await chunkAckWaiter.promise;
-            sent = true;
-          } catch (error) {
-            chunkAckWaiter.cancel();
-
-            if (retryCount >= MAX_CHUNK_RETRIES) {
-              throw error;
-            }
-
-            retryCount += 1;
-            setStatus("paused");
-            setStatusMessage(
-              `Network issue. Retrying chunk ${chunkIndex + 1}/${totalChunks}...`,
-            );
-          }
-        }
-
+        await sendToChannels(channels, packet);
         setProgress(((chunkIndex + 1) / totalChunks) * 100);
       }
 
-      socket.emit("file:complete", meta);
+      await sendToChannels(
+        channels,
+        JSON.stringify({
+          messageType: "complete",
+          transferId,
+          totalChunks,
+          size: file.size,
+        }),
+      );
+
       setStatus("completed");
-      setStatusMessage("File shared.");
+      setStatusMessage("File sent over direct peer connection.");
+      activeTransferRef.current = null;
     } catch (error) {
-      readyWaiter.cancel();
       const message =
         error instanceof Error ? error.message : "File transfer failed.";
 
       if (message !== "Transfer cancelled.") {
-        socket.emit("file:cancel", {
+        socket.emit("webrtc:file-cancel", {
           room,
           transferId,
           message,
@@ -363,7 +529,7 @@ const FileSender: React.FC = () => {
         setStatusMessage(message);
       }
     } finally {
-      activeTransferIdRef.current = "";
+      activeTransferRef.current = null;
     }
   };
 
@@ -372,7 +538,7 @@ const FileSender: React.FC = () => {
       <div className="sender-header">
         <span className="sender-title">Share file</span>
         <span className={`sender-status sender-status-${status}`}>
-          {status === "paused" ? "retrying" : status}
+          {status}
         </span>
       </div>
 

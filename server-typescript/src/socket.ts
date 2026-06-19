@@ -11,13 +11,13 @@ import * as Y from "yjs";
 const app: express.Application = express();
 const server = createServer(app);
 
-type FileTransferAck = {
+type WebRtcSignalAck = {
   ok: boolean;
   message?: string;
   recipients?: number;
 };
 
-type FileTransferPayload = {
+type WebRtcFileRequestPayload = {
   room?: string;
   transferId: string;
   filename: string;
@@ -28,27 +28,35 @@ type FileTransferPayload = {
   senderName?: string;
 };
 
-type FileChunkPayload = FileTransferPayload & {
-  chunkIndex: number;
-  chunk: ArrayBuffer | Uint8Array | number[];
-};
-
-type FileReadyPayload = {
+type WebRtcReadyPayload = {
   room?: string;
   transferId: string;
-  senderId: string;
+  targetId: string;
 };
 
-type FileChunkAckPayload = {
-  room?: string;
-  transferId: string;
-  chunkIndex: number;
-  senderId: string;
+type WebRtcOfferPayload = WebRtcFileRequestPayload & {
+  targetId: string;
+  description: unknown;
 };
 
-type FileCancelPayload = {
+type WebRtcAnswerPayload = {
   room?: string;
   transferId: string;
+  targetId: string;
+  description: unknown;
+};
+
+type WebRtcIceCandidatePayload = {
+  room?: string;
+  transferId: string;
+  targetId: string;
+  candidate: unknown;
+};
+
+type WebRtcCancelPayload = {
+  room?: string;
+  transferId: string;
+  targetId?: string;
   message?: string;
 };
 
@@ -120,8 +128,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on(
-    "file:offer",
-    (payload: FileTransferPayload, callback?: (ack: FileTransferAck) => void) => {
+    "webrtc:file-request",
+    (
+      payload: WebRtcFileRequestPayload,
+      callback?: (ack: WebRtcSignalAck) => void,
+    ) => {
       const roomName = getRoomName(socket, payload.room);
       if (!roomName) {
         callback?.({ ok: false, message: "Join a room before sharing files." });
@@ -135,7 +146,7 @@ io.on("connection", (socket) => {
         return;
       }
 
-      socket.to(roomName).emit("file:offer", {
+      socket.to(roomName).emit("webrtc:file-request", {
         ...payload,
         room: roomName,
         senderId: socket.id,
@@ -144,66 +155,64 @@ io.on("connection", (socket) => {
     },
   );
 
-  socket.on("file:ready", (payload: FileReadyPayload) => {
-    const roomName = getRoomName(socket, payload.room);
-    if (!roomName || !payload.senderId) return;
+  socket.on("webrtc:file-ready", (payload: WebRtcReadyPayload) => {
+    if (!payload.targetId) return;
 
-    io.to(payload.senderId).emit("file:ready", {
-      room: roomName,
-      transferId: payload.transferId,
-      receiverId: socket.id,
-    });
-  });
-
-  socket.on(
-    "file:chunk",
-    (payload: FileChunkPayload, callback?: (ack: FileTransferAck) => void) => {
-      const roomName = getRoomName(socket, payload.room);
-      if (!roomName) {
-        callback?.({ ok: false, message: "Join a room before sharing files." });
-        return;
-      }
-
-      socket.to(roomName).emit("file:chunk", {
-        ...payload,
-        room: roomName,
-        senderId: socket.id,
-      });
-      callback?.({ ok: true });
-    },
-  );
-
-  socket.on("file:chunk-ack", (payload: FileChunkAckPayload) => {
-    if (!payload.senderId) return;
-
-    io.to(payload.senderId).emit("file:chunk-ack", {
+    io.to(payload.targetId).emit("webrtc:file-ready", {
       room: getRoomName(socket, payload.room),
       transferId: payload.transferId,
-      chunkIndex: payload.chunkIndex,
       receiverId: socket.id,
     });
   });
 
-  socket.on("file:complete", (payload: FileCancelPayload) => {
-    const roomName = getRoomName(socket, payload.room);
-    if (!roomName) return;
+  socket.on("webrtc:file-offer", (payload: WebRtcOfferPayload) => {
+    if (!payload.targetId) return;
 
-    socket.to(roomName).emit("file:complete", {
+    io.to(payload.targetId).emit("webrtc:file-offer", {
       ...payload,
-      room: roomName,
+      room: getRoomName(socket, payload.room),
       senderId: socket.id,
     });
   });
 
-  socket.on("file:cancel", (payload: FileCancelPayload) => {
-    const roomName = getRoomName(socket, payload.room);
-    if (!roomName) return;
+  socket.on("webrtc:file-answer", (payload: WebRtcAnswerPayload) => {
+    if (!payload.targetId) return;
 
-    socket.to(roomName).emit("file:cancel", {
+    io.to(payload.targetId).emit("webrtc:file-answer", {
+      room: getRoomName(socket, payload.room),
+      transferId: payload.transferId,
+      receiverId: socket.id,
+      description: payload.description,
+    });
+  });
+
+  socket.on("webrtc:ice-candidate", (payload: WebRtcIceCandidatePayload) => {
+    if (!payload.targetId || !payload.candidate) return;
+
+    io.to(payload.targetId).emit("webrtc:ice-candidate", {
+      room: getRoomName(socket, payload.room),
+      transferId: payload.transferId,
+      fromId: socket.id,
+      candidate: payload.candidate,
+    });
+  });
+
+  socket.on("webrtc:file-cancel", (payload: WebRtcCancelPayload) => {
+    const roomName = getRoomName(socket, payload.room);
+    const cancelPayload = {
       ...payload,
       room: roomName,
-      senderId: socket.id,
-    });
+      fromId: socket.id,
+    };
+
+    if (payload.targetId) {
+      io.to(payload.targetId).emit("webrtc:file-cancel", cancelPayload);
+      return;
+    }
+
+    if (roomName) {
+      socket.to(roomName).emit("webrtc:file-cancel", cancelPayload);
+    }
   });
 
   socket.on("error", (error: Error) => {
