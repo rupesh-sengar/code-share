@@ -10,6 +10,8 @@ import { useAnimation, AnimatePresence } from "framer-motion";
 import socket from "../utils/socket";
 import { useInView } from "react-intersection-observer";
 import JoinAlert from "../components/join-alert/join-alert";
+import FileSender from "../components/file-sender/file-sender";
+import FileReceiver from "../components/file-receiver/file-receiver";
 
 type ServerConnectionStatus =
   | "connecting"
@@ -161,7 +163,17 @@ const Layout = () => {
       <AnimatePresence initial={false}>
         {!isJoined && <JoinRoom></JoinRoom>}
       </AnimatePresence>
-      {isJoined && <TextArea room={room} currentUser={user || "Anonymous"} />}
+      {isJoined && (
+        <>
+          <TextArea room={room} currentUser={user || "Anonymous"} />
+          <div className="file-sharing-container">
+            <FileSender />
+          </div>
+          <div className="file-receiving-container">
+            <FileReceiver />
+          </div>
+        </>
+      )}
     </div>
   );
 };
