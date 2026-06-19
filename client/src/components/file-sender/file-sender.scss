@@ -1,169 +1,128 @@
 .sender-container {
-  width: min(320px, calc(100vw - 32px));
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  background: rgba(24, 24, 24, 0.92);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
-  color: #fafafa;
-}
-
-.sender-header,
-.sender-file-details,
-.sender-progress-row,
-.sender-actions {
-  display: flex;
+  width: min(300px, calc(100vw - 24px));
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-}
-
-.sender-header,
-.sender-file-details {
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.sender-title {
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.sender-status {
-  min-width: 74px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  color: #d9d9d9;
-  font-size: 11px;
-  font-weight: 700;
-  text-align: center;
-  text-transform: uppercase;
-}
-
-.sender-status-sending,
-.sender-status-completed {
-  color: #dff7e8;
-  background: rgba(39, 160, 86, 0.28);
-}
-
-.sender-status-waiting,
-.sender-status-connecting,
-.sender-status-paused {
-  color: #fff3d8;
-  background: rgba(214, 151, 47, 0.3);
-}
-
-.sender-status-failed {
-  color: #ffe5e2;
-  background: rgba(192, 57, 43, 0.3);
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 18%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--secondary-color) 92%, transparent);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  color: var(--text-color);
+  backdrop-filter: blur(8px);
+  position: relative;
+  overflow: hidden;
 }
 
 .sender-file-picker {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 40px;
-  border: 1px dashed rgba(255, 255, 255, 0.32);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  min-width: 48px;
+  min-height: 30px;
+  border: 1px dashed color-mix(in srgb, var(--accent-color) 44%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--background-color) 58%, transparent);
+  color: var(--text-color);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .sender-file-picker:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--primary-color) 16%, var(--background-color));
 }
 
 .sender-file-picker.is-disabled {
   cursor: not-allowed;
-  opacity: 0.65;
+  opacity: 0.6;
 }
 
 .sender-file-picker input[type="file"] {
   display: none;
 }
 
-.sender-file-details {
-  min-height: 22px;
-}
-
 .sender-file-name {
   min-width: 0;
   overflow: hidden;
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 650;
+  color: color-mix(in srgb, var(--text-color) 84%, transparent);
+  font-size: 12px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sender-file-size {
-  flex-shrink: 0;
-  color: #b9bec7;
-  font-size: 12px;
-}
-
-.sender-progress-row {
-  gap: 10px;
-}
-
-.sender-progress {
-  width: 100%;
-  height: 8px;
-  accent-color: #27a056;
-}
-
-.sender-progress-label {
-  width: 42px;
-  color: #cfd3dc;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.sender-message {
-  min-height: 18px;
-  margin: 0;
-  color: #d9d9d9;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .sender-actions {
-  gap: 8px;
-  justify-content: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .sender-action {
-  min-width: 76px;
-  min-height: 34px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  min-width: 52px;
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 24%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--background-color) 70%, transparent);
+  color: var(--text-color);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .sender-action:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--primary-color) 16%, var(--background-color));
 }
 
 .sender-action:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .sender-action-primary {
-  border-color: rgba(39, 160, 86, 0.72);
-  background: #27a056;
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+  color: #ffffff;
 }
 
 .sender-action-primary:hover:not(:disabled) {
-  background: #21884a;
+  background: color-mix(in srgb, var(--primary-color) 82%, #000000);
+}
+
+.sender-action-icon {
+  min-width: 30px;
+  width: 30px;
+  padding: 0;
+}
+
+.sender-progress {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 2px;
+  width: calc(100% - 12px);
+  height: 3px;
+  accent-color: var(--accent-color);
+}
+
+.sender-container-completed .sender-progress {
+  accent-color: #27a056;
+}
+
+.sender-container-failed {
+  border-color: rgba(192, 57, 43, 0.55);
+}
+
+.sender-container-failed .sender-progress {
+  accent-color: #c0392b;
+}
+
+.sender-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #ffe5e2;
+  font-size: 11px;
+  line-height: 1.3;
 }

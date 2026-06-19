@@ -3,7 +3,9 @@ import { useSelector } from "react-redux";
 import socket from "../../utils/socket";
 import "./file-sender.scss";
 
-const CHUNK_SIZE = 256 * 1024;
+const CHUNK_HEADER_SIZE = 8;
+const MAX_DATA_CHANNEL_MESSAGE_SIZE = 64 * 1024 - 1;
+const CHUNK_SIZE = MAX_DATA_CHANNEL_MESSAGE_SIZE - CHUNK_HEADER_SIZE;
 const CONNECTION_TIMEOUT_MS = 15000;
 const BUFFER_LOW_THRESHOLD = 512 * 1024;
 const MAX_BUFFERED_AMOUNT = 2 * 1024 * 1024;
@@ -61,18 +63,6 @@ type WebRtcReadyPayload = {
   receiverId: string;
 };
 
-const formatBytes = (bytes: number) => {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const unitIndex = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
-  return `${(bytes / Math.pow(1024, unitIndex)).toFixed(
-    unitIndex === 0 ? 0 : 1,
-  )} ${units[unitIndex]}`;
-};
-
 const createTransferId = () => {
   const browserCrypto = window.crypto as Crypto & {
     randomUUID?: () => string;
@@ -86,11 +76,11 @@ const createTransferId = () => {
 };
 
 const createChunkPacket = (chunkIndex: number, chunk: ArrayBuffer) => {
-  const packet = new ArrayBuffer(8 + chunk.byteLength);
+  const packet = new ArrayBuffer(CHUNK_HEADER_SIZE + chunk.byteLength);
   const view = new DataView(packet);
   view.setUint32(0, chunkIndex);
   view.setUint32(4, chunk.byteLength);
-  new Uint8Array(packet, 8).set(new Uint8Array(chunk));
+  new Uint8Array(packet, CHUNK_HEADER_SIZE).set(new Uint8Array(chunk));
   return packet;
 };
 
@@ -125,6 +115,11 @@ const FileSender: React.FC = () => {
   const isBusy =
     status === "waiting" || status === "connecting" || status === "sending";
   const progressLabel = useMemo(() => `${Math.round(progress)}%`, [progress]);
+  const transferLabel = isBusy
+    ? progressLabel
+    : status === "completed"
+      ? "Done"
+      : "Share";
 
   const closePeers = () => {
     peersRef.current.forEach(({ channel, connection }) => {
@@ -375,8 +370,8 @@ const FileSender: React.FC = () => {
 
       if (channel.bufferedAmount <= MAX_BUFFERED_AMOUNT) {
         resolve();
-      return;
-    }
+        return;
+      }
 
       let timeoutId: number;
       const handleLowBuffer = () => {
@@ -534,34 +529,18 @@ const FileSender: React.FC = () => {
   };
 
   return (
-    <div className="sender-container">
-      <div className="sender-header">
-        <span className="sender-title">Share file</span>
-        <span className={`sender-status sender-status-${status}`}>
-          {status}
-        </span>
-      </div>
-
+    <div
+      className={`sender-container sender-container-${status}`}
+      title={statusMessage || undefined}
+    >
       <label className={`sender-file-picker ${isBusy ? "is-disabled" : ""}`}>
         <input type="file" onChange={handleFileChange} disabled={isBusy} />
-        <span>{file ? "Change file" : "Choose file"}</span>
+        <span>File</span>
       </label>
 
-      {file && (
-        <div className="sender-file-details">
-          <span className="sender-file-name" title={file.name}>
-            {file.name}
-          </span>
-          <span className="sender-file-size">{formatBytes(file.size)}</span>
-        </div>
-      )}
-
-      <div className="sender-progress-row">
-        <progress className="sender-progress" value={progress} max={100} />
-        <span className="sender-progress-label">{progressLabel}</span>
-      </div>
-
-      {statusMessage && <p className="sender-message">{statusMessage}</p>}
+      <span className="sender-file-name" title={file?.name || "No file selected"}>
+        {file ? file.name : "No file"}
+      </span>
 
       <div className="sender-actions">
         <button
@@ -570,18 +549,27 @@ const FileSender: React.FC = () => {
           disabled={!file || isBusy}
           type="button"
         >
-          Share
+          {transferLabel}
         </button>
         {isBusy && (
           <button
-            className="sender-action"
+            className="sender-action sender-action-icon"
             onClick={cancelTransfer}
             type="button"
+            aria-label="Cancel file transfer"
           >
-            Cancel
+            X
           </button>
         )}
       </div>
+
+      {(isBusy || status === "completed" || status === "failed") && (
+        <progress className="sender-progress" value={progress} max={100} />
+      )}
+
+      {status === "failed" && statusMessage && (
+        <p className="sender-message">{statusMessage}</p>
+      )}
     </div>
   );
 };

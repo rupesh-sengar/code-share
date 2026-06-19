@@ -5,6 +5,7 @@ import "./file-receiver.scss";
 const RTC_CONFIGURATION: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
+const CHUNK_HEADER_SIZE = 8;
 
 type TransferStatus = "receiving" | "completed" | "failed";
 
@@ -50,18 +51,6 @@ type ReceiverTransfer = {
   downloadUrl?: string;
 };
 
-const formatBytes = (bytes: number) => {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const unitIndex = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
-  return `${(bytes / Math.pow(1024, unitIndex)).toFixed(
-    unitIndex === 0 ? 0 : 1,
-  )} ${units[unitIndex]}`;
-};
-
 const parseControlMessage = (payload: unknown) => {
   if (typeof payload !== "string") return null;
 
@@ -76,18 +65,18 @@ const parseControlMessage = (payload: unknown) => {
 };
 
 const parseChunkPacket = (payload: ArrayBuffer) => {
-  if (payload.byteLength < 8) return null;
+  if (payload.byteLength < CHUNK_HEADER_SIZE) return null;
 
   const view = new DataView(payload);
   const chunkIndex = view.getUint32(0);
   const chunkLength = view.getUint32(4);
-  const chunkEnd = 8 + chunkLength;
+  const chunkEnd = CHUNK_HEADER_SIZE + chunkLength;
 
   if (chunkEnd > payload.byteLength) return null;
 
   return {
     chunkIndex,
-    chunk: payload.slice(8, chunkEnd),
+    chunk: payload.slice(CHUNK_HEADER_SIZE, chunkEnd),
   };
 };
 
@@ -435,37 +424,23 @@ const FileReceiver: React.FC = () => {
       : (transfer.receivedChunks / transfer.totalChunks) * 100,
   );
   const progressLabel = `${Math.round(progress)}%`;
+  const stateLabel =
+    transfer.status === "completed"
+      ? "Ready"
+      : transfer.status === "failed"
+        ? "Failed"
+        : progressLabel;
 
   return (
-    <div className={`receiver-container receiver-container-${transfer.status}`}>
-      <div className="receiver-header">
-        <span className="receiver-title">
-          {transfer.status === "completed" ? "File ready" : "Incoming file"}
-        </span>
-        <button
-          className="receiver-close"
-          onClick={clearTransfer}
-          type="button"
-          aria-label="Dismiss file transfer"
-        >
-          X
-        </button>
-      </div>
-
-      <div className="receiver-file-name" title={transfer.filename}>
+    <div
+      className={`receiver-container receiver-container-${transfer.status}`}
+      title={transfer.message}
+    >
+      <span className="receiver-file-name" title={transfer.filename}>
         {transfer.filename}
-      </div>
-      <div className="receiver-meta">
-        <span>{formatBytes(transfer.receivedBytes)}</span>
-        <span>{formatBytes(transfer.size)}</span>
-      </div>
+      </span>
 
-      <div className="receiver-progress-row">
-        <progress className="receiver-progress" value={progress} max={100} />
-        <span className="receiver-progress-label">{progressLabel}</span>
-      </div>
-
-      <p className="receiver-message">{transfer.message}</p>
+      <span className="receiver-progress-label">{stateLabel}</span>
 
       {transfer.status === "completed" && (
         <button
@@ -475,6 +450,21 @@ const FileReceiver: React.FC = () => {
         >
           Download
         </button>
+      )}
+
+      <button
+        className="receiver-close"
+        onClick={clearTransfer}
+        type="button"
+        aria-label="Dismiss file transfer"
+      >
+        X
+      </button>
+
+      <progress className="receiver-progress" value={progress} max={100} />
+
+      {transfer.status === "failed" && (
+        <p className="receiver-message">{transfer.message}</p>
       )}
     </div>
   );
