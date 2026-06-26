@@ -60,6 +60,19 @@ type WebRtcCancelPayload = {
   message?: string;
 };
 
+type FileRelayChunkPayload = {
+  room?: string;
+  transferId: string;
+  packet: unknown;
+};
+
+type FileRelayCompletePayload = {
+  room?: string;
+  transferId: string;
+  totalChunks: number;
+  size: number;
+};
+
 const getRoomName = (socket: Socket, room?: string) => room ?? socket.data.room;
 
 app.use(express.json());
@@ -214,6 +227,79 @@ io.on("connection", (socket) => {
       socket.to(roomName).emit("webrtc:file-cancel", cancelPayload);
     }
   });
+
+  socket.on(
+    "file-relay:start",
+    (
+      payload: WebRtcFileRequestPayload,
+      callback?: (ack: WebRtcSignalAck) => void,
+    ) => {
+      const roomName = getRoomName(socket, payload.room);
+      if (!roomName) {
+        callback?.({ ok: false, message: "Join a room before sharing files." });
+        return;
+      }
+
+      const roomSockets = io.sockets.adapter.rooms.get(roomName);
+      const recipients = Math.max((roomSockets?.size ?? 0) - 1, 0);
+      if (recipients === 0) {
+        callback?.({ ok: false, message: "No other users are in this room." });
+        return;
+      }
+
+      socket.to(roomName).emit("file-relay:start", {
+        ...payload,
+        room: roomName,
+        senderId: socket.id,
+      });
+      callback?.({ ok: true, recipients });
+    },
+  );
+
+  socket.on(
+    "file-relay:chunk",
+    (
+      payload: FileRelayChunkPayload,
+      callback?: (ack: WebRtcSignalAck) => void,
+    ) => {
+      const roomName = getRoomName(socket, payload.room);
+      if (!roomName) {
+        callback?.({ ok: false, message: "Join a room before sharing files." });
+        return;
+      }
+
+      socket.to(roomName).emit("file-relay:chunk", {
+        room: roomName,
+        transferId: payload.transferId,
+        senderId: socket.id,
+        packet: payload.packet,
+      });
+      callback?.({ ok: true });
+    },
+  );
+
+  socket.on(
+    "file-relay:complete",
+    (
+      payload: FileRelayCompletePayload,
+      callback?: (ack: WebRtcSignalAck) => void,
+    ) => {
+      const roomName = getRoomName(socket, payload.room);
+      if (!roomName) {
+        callback?.({ ok: false, message: "Join a room before sharing files." });
+        return;
+      }
+
+      socket.to(roomName).emit("file-relay:complete", {
+        room: roomName,
+        transferId: payload.transferId,
+        senderId: socket.id,
+        totalChunks: payload.totalChunks,
+        size: payload.size,
+      });
+      callback?.({ ok: true });
+    },
+  );
 
   socket.on("error", (error: Error) => {
     console.log(`Socket Error: ${error.message}`);

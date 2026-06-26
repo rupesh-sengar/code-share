@@ -7,6 +7,8 @@ const CHUNK_HEADER_SIZE = 8;
 const MAX_DATA_CHANNEL_MESSAGE_SIZE = 64 * 1024 - 1;
 const CHUNK_SIZE = MAX_DATA_CHANNEL_MESSAGE_SIZE - CHUNK_HEADER_SIZE;
 const CONNECTION_TIMEOUT_MS = 15000;
+const NO_DIRECT_CONNECTION_MESSAGE =
+  "No direct peer connection could be established.";
 const BUFFER_LOW_THRESHOLD = 512 * 1024;
 const MAX_BUFFERED_AMOUNT = 2 * 1024 * 1024;
 
@@ -123,6 +125,11 @@ const FileSender: React.FC = () => {
 
   const closePeers = () => {
     peersRef.current.forEach(({ channel, connection }) => {
+      channel.onopen = null;
+      channel.onmessage = null;
+      channel.onerror = null;
+      connection.onicecandidate = null;
+      connection.onconnectionstatechange = null;
       channel.close();
       connection.close();
     });
@@ -330,7 +337,7 @@ const FileSender: React.FC = () => {
             return;
           }
 
-          reject(new Error("No direct peer connection could be established."));
+          reject(new Error(NO_DIRECT_CONNECTION_MESSAGE));
           return;
         }
 
@@ -405,6 +412,13 @@ const FileSender: React.FC = () => {
     );
   };
 
+  const sendRelayPacket = (meta: FileTransferMeta, packet: ArrayBuffer) =>
+    emitWithAck("file-relay:chunk", {
+      room: meta.room,
+      transferId: meta.transferId,
+      packet,
+    });
+
   const cancelTransfer = () => {
     cancelledRef.current = true;
     const activeTransfer = activeTransferRef.current;
@@ -470,17 +484,43 @@ const FileSender: React.FC = () => {
       setStatus("connecting");
       setStatusMessage("Creating direct peer connection...");
 
-      const channels = await waitForOpenChannels(expectedRecipients);
-      await sendToChannels(
-        channels,
-        JSON.stringify({
-          messageType: "manifest",
-          ...meta,
-        }),
-      );
+      let relayFallback = false;
+      let channels: RTCDataChannel[] = [];
 
-      setStatus("sending");
-      setStatusMessage(`Sending directly to ${channels.length} peer(s)...`);
+      try {
+        channels = await waitForOpenChannels(expectedRecipients);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "File transfer failed.";
+
+        if (message !== NO_DIRECT_CONNECTION_MESSAGE) {
+          throw error;
+        }
+
+        relayFallback = true;
+        closePeers();
+        setStatus("sending");
+        setStatusMessage(
+          "Direct connection unavailable. Sending through server relay...",
+        );
+        await emitWithAck("file-relay:start", meta);
+      }
+
+      if (relayFallback) {
+        setStatus("sending");
+        setStatusMessage("Sending through server relay...");
+      } else {
+        await sendToChannels(
+          channels,
+          JSON.stringify({
+            messageType: "manifest",
+            ...meta,
+          }),
+        );
+
+        setStatus("sending");
+        setStatusMessage(`Sending directly to ${channels.length} peer(s)...`);
+      }
 
       for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
         if (cancelledRef.current) {
@@ -493,22 +533,39 @@ const FileSender: React.FC = () => {
           .arrayBuffer();
         const packet = createChunkPacket(chunkIndex, chunk);
 
-        await sendToChannels(channels, packet);
+        if (relayFallback) {
+          await sendRelayPacket(meta, packet);
+        } else {
+          await sendToChannels(channels, packet);
+        }
         setProgress(((chunkIndex + 1) / totalChunks) * 100);
       }
 
-      await sendToChannels(
-        channels,
-        JSON.stringify({
-          messageType: "complete",
+      if (relayFallback) {
+        await emitWithAck("file-relay:complete", {
+          room,
           transferId,
           totalChunks,
           size: file.size,
-        }),
-      );
+        });
+      } else {
+        await sendToChannels(
+          channels,
+          JSON.stringify({
+            messageType: "complete",
+            transferId,
+            totalChunks,
+            size: file.size,
+          }),
+        );
+      }
 
       setStatus("completed");
-      setStatusMessage("File sent over direct peer connection.");
+      setStatusMessage(
+        relayFallback
+          ? "File sent through server relay."
+          : "File sent over direct peer connection.",
+      );
       activeTransferRef.current = null;
     } catch (error) {
       const message =

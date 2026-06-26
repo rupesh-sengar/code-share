@@ -36,6 +36,15 @@ type FileCancelPayload = {
   message?: string;
 };
 
+type FileRelayChunkPayload = {
+  transferId: string;
+  packet: unknown;
+};
+
+type FileRelayCompletePayload = {
+  transferId: string;
+};
+
 type ReceiverTransfer = {
   transferId: string;
   senderId: string;
@@ -80,6 +89,22 @@ const parseChunkPacket = (payload: ArrayBuffer) => {
   };
 };
 
+const normalizeBinaryPayload = (payload: unknown) => {
+  if (payload instanceof ArrayBuffer) return payload;
+
+  if (ArrayBuffer.isView(payload)) {
+    const view = payload as ArrayBufferView;
+    const bytes = new Uint8Array(
+      view.buffer as ArrayBuffer,
+      view.byteOffset,
+      view.byteLength,
+    );
+    return bytes.slice().buffer;
+  }
+
+  return null;
+};
+
 const FileReceiver: React.FC = () => {
   const [transfer, setTransfer] = useState<ReceiverTransfer | null>(null);
   const transferRef = useRef<ReceiverTransfer | null>(null);
@@ -102,8 +127,20 @@ const FileReceiver: React.FC = () => {
   }, []);
 
   const closePeerConnection = useCallback(() => {
-    channelRef.current?.close();
-    connectionRef.current?.close();
+    if (channelRef.current) {
+      channelRef.current.onopen = null;
+      channelRef.current.onmessage = null;
+      channelRef.current.onerror = null;
+      channelRef.current.close();
+    }
+
+    if (connectionRef.current) {
+      connectionRef.current.ondatachannel = null;
+      connectionRef.current.onicecandidate = null;
+      connectionRef.current.onconnectionstatechange = null;
+      connectionRef.current.close();
+    }
+
     channelRef.current = null;
     connectionRef.current = null;
     pendingCandidatesRef.current = [];
@@ -184,6 +221,31 @@ const FileReceiver: React.FC = () => {
     [closePeerConnection, revokeDownloadUrl, setActiveTransfer],
   );
 
+  const receiveChunkPacket = useCallback(
+    (data: ArrayBuffer, message = "Receiving file...") => {
+      const packet = parseChunkPacket(data);
+      const currentTransfer = transferRef.current;
+      if (!packet || !currentTransfer || currentTransfer.status === "completed") {
+        return;
+      }
+
+      const isDuplicate = chunksRef.current.has(packet.chunkIndex);
+      if (isDuplicate) return;
+
+      chunksRef.current.set(packet.chunkIndex, packet.chunk);
+      setActiveTransfer({
+        ...currentTransfer,
+        status: "receiving",
+        receivedChunks: currentTransfer.receivedChunks + 1,
+        receivedBytes: currentTransfer.receivedBytes + packet.chunk.byteLength,
+        message,
+      });
+
+      completeTransferIfReady();
+    },
+    [completeTransferIfReady, setActiveTransfer],
+  );
+
   const attachDataChannel = useCallback(
     (channel: RTCDataChannel) => {
       channelRef.current = channel;
@@ -218,24 +280,10 @@ const FileReceiver: React.FC = () => {
           return;
         }
 
-        if (!(data instanceof ArrayBuffer)) return;
+        const packet = normalizeBinaryPayload(data);
+        if (!packet) return;
 
-        const packet = parseChunkPacket(data);
-        const currentTransfer = transferRef.current;
-        if (!packet || !currentTransfer) return;
-
-        const isDuplicate = chunksRef.current.has(packet.chunkIndex);
-        if (isDuplicate) return;
-
-        chunksRef.current.set(packet.chunkIndex, packet.chunk);
-        setActiveTransfer({
-          ...currentTransfer,
-          receivedChunks: currentTransfer.receivedChunks + 1,
-          receivedBytes: currentTransfer.receivedBytes + packet.chunk.byteLength,
-          message: "Receiving file...",
-        });
-
-        completeTransferIfReady();
+        receiveChunkPacket(packet);
       };
 
       channel.onerror = () => {
@@ -249,7 +297,7 @@ const FileReceiver: React.FC = () => {
         });
       };
     },
-    [completeTransferIfReady, setActiveTransfer],
+    [completeTransferIfReady, receiveChunkPacket, setActiveTransfer],
   );
 
   useEffect(() => {
@@ -365,23 +413,70 @@ const FileReceiver: React.FC = () => {
       });
     };
 
+    const handleRelayStart = (payload: FileTransferPayload) => {
+      closePeerConnection();
+
+      let currentTransfer = transferRef.current;
+      if (!currentTransfer || currentTransfer.transferId !== payload.transferId) {
+        currentTransfer = createTransfer(payload);
+      }
+
+      setActiveTransfer({
+        ...currentTransfer,
+        status: "receiving",
+        message: "Receiving through server relay...",
+      });
+    };
+
+    const handleRelayChunk = ({ transferId, packet }: FileRelayChunkPayload) => {
+      const currentTransfer = transferRef.current;
+      if (!currentTransfer || currentTransfer.transferId !== transferId) return;
+
+      const chunk = normalizeBinaryPayload(packet);
+      if (!chunk) {
+        setActiveTransfer({
+          ...currentTransfer,
+          status: "failed",
+          message: "Received an invalid relay chunk.",
+        });
+        return;
+      }
+
+      receiveChunkPacket(chunk, "Receiving through server relay...");
+    };
+
+    const handleRelayComplete = ({ transferId }: FileRelayCompletePayload) => {
+      const currentTransfer = transferRef.current;
+      if (!currentTransfer || currentTransfer.transferId !== transferId) return;
+
+      completeTransferIfReady(true);
+    };
+
     socket.on("webrtc:file-request", handleRequest);
     socket.on("webrtc:file-offer", handleOffer);
     socket.on("webrtc:ice-candidate", handleIceCandidate);
     socket.on("webrtc:file-cancel", handleCancel);
+    socket.on("file-relay:start", handleRelayStart);
+    socket.on("file-relay:chunk", handleRelayChunk);
+    socket.on("file-relay:complete", handleRelayComplete);
 
     return () => {
       socket.off("webrtc:file-request", handleRequest);
       socket.off("webrtc:file-offer", handleOffer);
       socket.off("webrtc:ice-candidate", handleIceCandidate);
       socket.off("webrtc:file-cancel", handleCancel);
+      socket.off("file-relay:start", handleRelayStart);
+      socket.off("file-relay:chunk", handleRelayChunk);
+      socket.off("file-relay:complete", handleRelayComplete);
       closePeerConnection();
       revokeDownloadUrl();
     };
   }, [
     attachDataChannel,
     closePeerConnection,
+    completeTransferIfReady,
     createTransfer,
+    receiveChunkPacket,
     revokeDownloadUrl,
     setActiveTransfer,
   ]);
