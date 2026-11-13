@@ -1,46 +1,34 @@
-# Getting Started with Create React App
+# Code Share frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+React 18, TypeScript, Ant Design, and Vite with the official React plugin.
 
-## Available Scripts
+Use Node.js 24.15+ on the 24.x release line, or another version allowed by
+`package.json`. Install dependencies with `npm ci`.
 
-In the project directory, you can run:
+- `npm run dev` (or `npm start`): start Vite at http://localhost:3000.
+- `npm run build`: type-check and build production assets into `build/`.
+- `npm run preview`: preview the production build at http://localhost:4173.
+- `npm test`: run the frontend tests with Vitest and jsdom.
+- `npm run test:watch`: run tests in watch mode.
+- `npm run typecheck`: check TypeScript without building.
 
-### `npm start`
+Copy `.env.example` to `.env.local` to connect to a local TypeScript backend on
+port 3001. Set `VITE_SERVER_URL` to select another backend. Without this variable,
+the frontend connects to the existing production server. Vite embeds this value
+at build time, so rebuild after changing the production backend URL. Variables
+prefixed with `VITE_` are public and must not contain secrets.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+The root `index.html` is Vite's entry page; static icons and the manifest remain
+in `public/`. Monaco's editor and JavaScript/TypeScript workers are bundled by
+Vite. The editor code loads when the application opens, so joining a room does
+not wait for a separate editor download. Ant Design's
+`ConfigProvider` follows the application's dark theme. The room selector retains
+its original native inputs, button, and styling.
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+Joining adds `?name=Alice&room=my-room` to the URL. Refreshing or opening that
+URL automatically joins the room with the same name. Invalid or incomplete
+parameters show the normal join selector. Exiting removes the two parameters;
+browser Back/Forward follows the room encoded in the URL.
 
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
-
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+Firebase hosting still serves `build/` using the existing `firebase.json`.
+Build before running your usual Firebase deployment command.

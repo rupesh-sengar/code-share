@@ -1,7 +1,6 @@
 import send from "../../../../assets/images/send.svg";
 import "./chat-box-button.scss";
-import { useSelector } from "react-redux/es/hooks/useSelector";
-import { useDispatch } from "react-redux/es/exports";
+import { useSelector, useDispatch } from "react-redux";
 import {
   updateChatMessages,
   updateMessage,

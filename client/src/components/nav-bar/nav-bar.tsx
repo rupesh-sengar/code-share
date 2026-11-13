@@ -62,16 +62,18 @@ const NavBar = ({
           <span className="server-status-dot"></span>
           <span className="server-status-text">{getServerStatusLabel()}</span>
         </div>
-        <motion.img
+        <motion.button
+          type="button"
+          aria-label="Exit room"
           initial="initial"
           whileHover="hover"
           variants={scaleVariants}
           transition={{ duration: 0.2 }}
-          src={exit}
-          alt="Exit"
-          className="exit-svg"
+          className="nav-exit"
           onClick={exitRoomChange}
-        />
+        >
+          <img src={exit} alt="Exit" className="exit-svg" />
+        </motion.button>
       </li>
     </ul>
   );

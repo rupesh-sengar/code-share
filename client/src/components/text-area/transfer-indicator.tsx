@@ -1,67 +1,83 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { message, Progress } from "antd";
 import type { DocumentTransferProgress } from "../../utils/document-sync";
 
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
-}
+const MESSAGE_KEY = "incoming-document";
+const TRANSFER_GRADIENT = {
+  "0%": "var(--primary-color, #743d7c)",
+  "100%": "color-mix(in srgb, var(--primary-color, #743d7c) 40%, var(--accent-color, #e2e283))",
+};
+
+// Keep the portal inside the app so it inherits the active palette variables.
+const getToastContainer = () => document.querySelector<HTMLElement>(".app") ?? document.body;
 
 export default function TransferIndicator({ progress }: { progress: DocumentTransferProgress | null }) {
-  const [dismissed, setDismissed] = useState(false);
-  const id = progress?.id;
-  const phase = progress?.phase;
+  const [api, contextHolder] = message.useMessage({ top: 72, maxCount: 1, getContainer: getToastContainer });
+
+  useEffect(() => () => api.destroy(MESSAGE_KEY), [api]);
 
   useEffect(() => {
-    setDismissed(false);
+    if (!progress) {
+      api.destroy(MESSAGE_KEY);
+      return;
+    }
+    const { phase, totalBytes, receivedBytes } = progress;
+    const labels = {
+      waiting: "Syncing text…",
+      uploading: "Incoming text…",
+      preparing: "Preparing text…",
+      receiving: "Receiving text…",
+      applying: "Finishing…",
+      complete: "Text received",
+      interrupted: "Transfer interrupted",
+    };
+    const knownTotal = totalBytes !== null && totalBytes > 0;
+    const percentage = phase === "complete" ? 100 : knownTotal
+      ? Math.max(0, Math.min(100, Math.floor(receivedBytes / totalBytes * 100))) : 0;
+    const showPercentage = knownTotal && (phase === "uploading" || phase === "receiving");
+    const determinate = showPercentage || phase === "complete" || (knownTotal && phase === "interrupted");
+    const label = `${labels[phase]}${showPercentage ? ` ${percentage}%` : ""}`;
+
+    api.open({
+      key: MESSAGE_KEY,
+      className: "editor-transfer-toast",
+      icon: null,
+      duration: 0,
+      pauseOnHover: false,
+      content: (
+        <div className="editor-transfer-content">
+          <span className="editor-transfer-label" role="status" aria-live="polite">{label}</span>
+          <div
+            role="progressbar"
+            aria-label="Incoming text progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={determinate ? percentage : undefined}
+            aria-valuetext={label}
+          >
+            <div aria-hidden="true">
+              <Progress
+                type="line"
+                percent={determinate ? percentage : 100}
+                status={phase === "complete" ? "success" : phase === "interrupted" ? "exception" : "active"}
+                strokeColor={phase === "interrupted" ? undefined : phase === "complete"
+                  ? "var(--accent-color, #e2e283)" : TRANSFER_GRADIENT}
+                railColor="color-mix(in srgb, var(--text-color, #fafafa) 10%, transparent)"
+                showInfo={false}
+                size={["100%", 4]}
+              />
+            </div>
+          </div>
+        </div>
+      ),
+    });
+    // Keep one persistent toast while updating it. A new transfer cancels the
+    // terminal-state timer instead of inheriting a previous auto-close timer.
     if (phase === "complete" || phase === "interrupted") {
-      const timer = setTimeout(() => setDismissed(true), phase === "complete" ? 2000 : 6000);
+      const timer = setTimeout(() => api.destroy(MESSAGE_KEY), phase === "complete" ? 2000 : 4000);
       return () => clearTimeout(timer);
     }
-  }, [id, phase]);
+  }, [api, progress]);
 
-  if (!progress || (dismissed && (phase === "complete" || phase === "interrupted"))) return null;
-
-  const labels = {
-    waiting: "Loading shared text…",
-    uploading: "Incoming text · Sender uploading",
-    preparing: "Incoming text · Preparing…",
-    receiving: "Receiving text…",
-    applying: "Finishing…",
-    complete: "Text received",
-    interrupted: "Incoming transfer interrupted",
-  };
-  const knownTotal = progress.totalBytes !== null && progress.totalBytes > 0;
-  const percentage = knownTotal
-    ? Math.min(100, Math.floor(progress.receivedBytes / progress.totalBytes! * 100))
-    : 0;
-  const showPercentage = phase === "uploading" || phase === "receiving";
-  const remaining = Math.max(0, (progress.totalBytes ?? 0) - progress.receivedBytes);
-  const detail = phase === "applying"
-    ? "All data received. Updating the editor…"
-    : phase === "preparing"
-      ? "Upload complete. Waiting for the server…"
-      : phase === "interrupted"
-        ? "Waiting for the sender to retry."
-        : phase === "complete"
-          ? `${formatBytes(progress.receivedBytes)} received`
-          : knownTotal
-            ? `${formatBytes(progress.receivedBytes)} of ${formatBytes(progress.totalBytes!)} · ${formatBytes(remaining)} left`
-            : "Waiting for incoming text…";
-
-  return (
-    <section className={`editor-transfer editor-transfer-${phase}`} aria-label="Incoming text transfer">
-      <div className="editor-transfer-heading">
-        <span role="status" aria-live="polite">{labels[progress.phase]}</span>
-        {showPercentage && knownTotal && <strong>{percentage}%</strong>}
-        {phase === "complete" && <span aria-hidden="true">✓</span>}
-      </div>
-      <progress
-        aria-label={phase === "uploading" ? "Sender upload progress" : "Incoming text progress"}
-        max={100}
-        value={showPercentage && knownTotal ? percentage : phase === "complete" ? 100 : undefined}
-      />
-      <p>{detail}</p>
-    </section>
-  );
+  return contextHolder;
 }

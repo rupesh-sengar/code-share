@@ -1,11 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 import TextArea from "../components/text-area/text-area";
 import NavBar from "../components/nav-bar/nav-bar";
 import JoinRoom from "../components/join-room/join-room";
 import "./layout.scss";
 
 import { useSelector, useDispatch } from "react-redux";
-import { toggleJoinRoom } from "../store/store";
+import { toggleJoinRoom, updateLoggedInUser, updateRoom } from "../store/store";
+import { getRoomSessionFromUrl, setRoomSessionInUrl } from "../utils/room-session";
 import { useAnimation, AnimatePresence } from "framer-motion";
 import socket from "../utils/socket";
 import { useInView } from "react-intersection-observer";
@@ -35,6 +36,21 @@ const Layout = () => {
 
   const { inView } = useInView();
   const animation = useAnimation();
+
+  useLayoutEffect(() => {
+    const restoreRoomFromUrl = () => {
+      const session = getRoomSessionFromUrl();
+      if (session) {
+        dispatch(updateRoom(session.room));
+        dispatch(updateLoggedInUser(session.user));
+      }
+      dispatch(toggleJoinRoom(session !== null));
+    };
+    // Restore the active room on refresh, and follow browser navigation.
+    restoreRoomFromUrl();
+    window.addEventListener("popstate", restoreRoomFromUrl);
+    return () => window.removeEventListener("popstate", restoreRoomFromUrl);
+  }, [dispatch]);
 
   useEffect(() => {
     if (inView) {
@@ -121,6 +137,7 @@ const Layout = () => {
   }, [isJoined, room]);
 
   const exitRoomChange = () => {
+    setRoomSessionInUrl(null);
     dispatch(toggleJoinRoom(false));
   };
 

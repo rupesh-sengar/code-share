@@ -6,7 +6,7 @@ import {
   updateLoggedInUser,
   updateRoom,
 } from "../../store/store";
-import { z } from "zod";
+import { roomSessionSchema, setRoomSessionInUrl } from "../../utils/room-session";
 import { useState } from "react";
 
 const modalVariants = {
@@ -19,11 +19,6 @@ const scaleVariants = {
   initial: { scale: 1 },
   hover: { scale: 1.1 },
 };
-
-const validationSchema = z.object({
-  user: z.string().min(2, "Name must be at least 2 characters").max(20),
-  room: z.string().min(3, "Room must be at least 3 characters"),
-});
 
 const JoinRoom = () => {
   // Variant for the modal animations
@@ -51,7 +46,7 @@ const JoinRoom = () => {
       setIsUserError("");
       setIsRoomError("");
 
-      const validationResult = validationSchema.safeParse({ user, room });
+      const validationResult = roomSessionSchema.safeParse({ user, room });
       if (!validationResult.success) {
         console.error("Join room validation failed:", {
           user,
@@ -68,6 +63,7 @@ const JoinRoom = () => {
         return;
       }
 
+      setRoomSessionInUrl(validationResult.data);
       dispatch(updateRoom(room));
       dispatch(updateLoggedInUser(user));
       dispatch(toggleJoinRoom(true));
@@ -97,6 +93,7 @@ const JoinRoom = () => {
         type="text"
         className="join-room-input"
         placeholder="Enter Name ..."
+        aria-label="Your name"
         onChange={onLoggedInUserInputChange}
         onKeyDown={handleKeyDownChange}
       />
@@ -105,6 +102,7 @@ const JoinRoom = () => {
         type="text"
         className="join-room-input"
         placeholder="Enter Room ..."
+        aria-label="Room name"
         onChange={onRoomInputChange}
         onKeyDown={handleKeyDownChange}
       />

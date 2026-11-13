@@ -1,7 +1,10 @@
 import * as Y from "yjs";
+import "../../monaco-workers";
 import { MonacoBinding } from "y-monaco";
 import { useEffect, useRef, useState } from "react";
-import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
+import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
+import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution";
+import "monaco-editor/esm/vs/language/typescript/monaco.contribution";
 import socket from "../../utils/socket";
 import { createDocumentSync, DocumentTransferProgress } from "../../utils/document-sync";
 import { normalizeDocumentBytes } from "../../utils/document-protocol";
@@ -90,6 +93,13 @@ const TextArea = ({ room, currentUser }: TextAreaProps) => {
       value: "",
       language: "javascript",
       theme: "vs-dark",
+      automaticLayout: true,
+      scrollbar: {
+        verticalScrollbarSize: 12,
+        horizontalScrollbarSize: 12,
+        verticalSliderSize: 5,
+        horizontalSliderSize: 5,
+      },
     });
 
     const binding = new MonacoBinding(
@@ -224,7 +234,6 @@ const TextArea = ({ room, currentUser }: TextAreaProps) => {
         id="editor"
         className="editor"
         ref={editorContainerRef}
-        style={{ height: "100vh", width: "100vw" }}
       />
     </>
   );

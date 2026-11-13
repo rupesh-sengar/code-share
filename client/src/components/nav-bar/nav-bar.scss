@@ -1,22 +1,35 @@
 .nav-container {
+  position: sticky;
+  top: 0;
+  z-index: 1100;
+  flex: 0 0 auto;
+  box-sizing: border-box;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 10px;
+  min-height: 48px;
+  padding: 4px 16px;
+  background: var(--background-color);
+  border-bottom: 1px solid color-mix(in srgb, var(--text-color) 8%, transparent);
 }
 
 .icon {
-  width: 40px;
+  width: 28px;
+  height: 28px;
+  display: block;
 }
 
 .project {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  gap: 6px;
 }
 
 .project-name {
   color: var(--text-color);
+  font-size: 17px;
+  line-height: 1.3;
 }
 
 .nav-links {
@@ -26,13 +39,41 @@
 .nav-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-right: 10px;
+  gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .nav-container { min-height: 44px; padding: 4px 12px; }
+  .nav-actions { gap: 8px; }
+  .nav-container .icon { width: 26px; height: 26px; }
+  .nav-container .project-name { font-size: 16px; }
+  .nav-container .server-status { padding: 4px 8px; }
+  .nav-container .server-status-text { font-size: 12px; }
 }
 
 .exit-svg {
-  width: 40px;
-  height: 40px;
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+
+.nav-exit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+  }
 }
 
 .server-status {
@@ -41,7 +82,7 @@
   gap: 8px;
   border-radius: 999px;
   border: 1px solid rgba(0, 0, 0, 0.12);
-  padding: 7px 12px;
+  padding: 4px 10px;
   background-color: var(--secondary-color);
 }
 
@@ -56,6 +97,7 @@
 .server-status-text {
   color: var(--text-color);
   font-size: 13px;
+  line-height: 18px;
   font-weight: 600;
 }
 
