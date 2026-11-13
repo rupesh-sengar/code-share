@@ -3,10 +3,12 @@
 The current backend is `server-typescript`; `server` is the older backend.
 
 Editor synchronization sends binary Yjs updates in 64 KiB chunks, with an
-acknowledgement for each uploaded chunk. The server applies and broadcasts an
-update only after every chunk arrives. On joining or reconnecting, the client
-merges the server snapshot and uploads any missing local edits. Edits made
-offline remain in the open editor until synchronization resumes.
+acknowledgement for each uploaded chunk and up to 16 chunks (1 MiB) in flight.
+This avoids waiting one network round trip per chunk on remote connections.
+The server applies and broadcasts an update only after every chunk arrives.
+On joining or reconnecting, both peers exchange Yjs state vectors and send only
+missing changes. A new participant still downloads the full current document.
+Edits made offline remain in the open editor until synchronization resumes.
 
 A single update or synchronization snapshot is limited to 256 MiB to bound
 incomplete-transfer memory. Failures appear above the editor. Transient failures

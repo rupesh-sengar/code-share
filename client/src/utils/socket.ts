@@ -1,8 +1,8 @@
 // socket.js
 import io from "socket.io-client";
 
-// const PRD_URL = "https://code-share-backend.onrender.com/";
-const PRD_URL = "http://localhost:3001";
+const PRD_URL = "https://code-share-backend.onrender.com/";
+// const PRD_URL = "http://localhost:3001");
 const socket = io(PRD_URL, {
   autoConnect: true,
   reconnection: true,

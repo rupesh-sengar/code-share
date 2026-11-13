@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
+const { performance } = require("node:perf_hooks");
 const { test, before, after } = require("node:test");
 const { io } = require("../../client/node_modules/socket.io-client");
 // The app builds install Yjs separately. Use one instance in this shared test
@@ -8,7 +9,7 @@ const Y = require("yjs");
 require.cache[require.resolve("../../client/node_modules/yjs")] = require.cache[require.resolve("yjs")];
 const server = require("../src/socket").default;
 const { getOrCreateDoc } = require("../src/yjs-server");
-const { createDocumentSync } = require("../../client/src/utils/document-sync");
+const { createDocumentSync, DOCUMENT_UPLOAD_WINDOW } = require("../../client/src/utils/document-sync");
 const clientProtocol = require("../../client/src/utils/document-protocol");
 const serverProtocol = require("../src/document-protocol");
 
@@ -44,10 +45,12 @@ async function peer(t, room, transports = ["websocket"], initialText = "") {
   const errors = [];
   const outgoingChunks = [];
   const incomingChunks = [];
+  const connectionErrors = [];
   let syncCount = 0;
   let disconnects = 0;
   let lastError = null;
   socket.on("disconnect", () => disconnects++);
+  socket.on("connect_error", (error) => connectionErrors.push(error.message));
   socket.onAnyOutgoing((event, payload) => {
     if (event === "document:chunk") outgoingChunks.push(payload.data.byteLength);
   });
@@ -59,7 +62,12 @@ async function peer(t, room, transports = ["websocket"], initialText = "") {
   t.after(() => { stop(); socket.disconnect(); doc.destroy(); });
   if (initialText) doc.getText("monaco").insert(0, initialText);
   socket.connect();
-  await eventually(() => syncCount === 1, "Peer did not synchronize after joining.");
+  try {
+    await eventually(() => syncCount === 1, "Peer did not synchronize after joining.");
+  } catch (error) {
+    t.diagnostic(JSON.stringify({ room, connected: socket.connected, syncCount, errors, connectionErrors }));
+    throw error;
+  }
   return {
     socket, doc, errors, outgoingChunks, incomingChunks, stop,
     get syncCount() { return syncCount; },
@@ -96,6 +104,46 @@ for (const transport of ["websocket", "polling"]) {
     }
     assert.equal(sender.disconnects + receiver.disconnects + lateJoiner.disconnects, 0);
     assert.deepEqual([...sender.errors, ...receiver.errors, ...lateJoiner.errors], []);
+  });
+
+  test(`chunk uploads stay bounded without a round trip per chunk over ${transport}`, async (t) => {
+    const room = roomName();
+    const sender = await peer(t, room, [transport]);
+    const receiver = await peer(t, room, [transport]);
+    const ackDelayMs = 50;
+    let outstanding = 0;
+    let peakOutstanding = 0;
+    let chunkCount = 0;
+    const originalEmit = sender.socket.emit;
+    // Delay real server acknowledgements to model a remote connection. Data,
+    // chunk ordering, room routing and Yjs application still use real sockets.
+    sender.socket.emit = function(event, ...args) {
+      if (event === "document:chunk") {
+        chunkCount++;
+        outstanding++;
+        peakOutstanding = Math.max(peakOutstanding, outstanding);
+        const callback = args[args.length - 1];
+        args[args.length - 1] = (...ackArgs) => setTimeout(() => {
+          outstanding--;
+          callback(...ackArgs);
+        }, ackDelayMs);
+      }
+      return originalEmit.call(this, event, ...args);
+    };
+    const content = "x".repeat(4 * 1024 * 1024);
+    const startedAt = performance.now();
+    text(sender).insert(0, content);
+    await eventually(() => text(receiver).length === content.length, "Pipelined paste was not delivered.");
+    const elapsedMs = performance.now() - startedAt;
+    assert.equal(hash(text(receiver).toString()), hash(content));
+    assert.equal(hash(savedText(room)), hash(content));
+    assert.ok(peakOutstanding > 1, "Each chunk still waits for its own round trip.");
+    assert.ok(peakOutstanding <= DOCUMENT_UPLOAD_WINDOW, "Upload buffering is unbounded.");
+    assert.ok(elapsedMs < chunkCount * ackDelayMs / 2, "Transfer still scales with one round trip per chunk.");
+    await eventually(() => outstanding === 0, "The final chunk was not acknowledged.");
+    t.diagnostic(`4 MiB, ${ackDelayMs} ms ack delay: ${Math.round(elapsedMs)} ms, ${peakOutstanding} chunks in flight`);
+    assert.equal(sender.disconnects + receiver.disconnects, 0);
+    assert.deepEqual([...sender.errors, ...receiver.errors], []);
   });
 }
 
@@ -152,19 +200,48 @@ test("edits made before connecting are merged without duplicating existing text"
   assert.equal(savedText(room), expected);
 });
 
+test("reconnecting a large document transfers only missing edits and deletions", async (t) => {
+  const room = roomName();
+  const owner = await peer(t, room, ["websocket"], "x".repeat(2 * 1024 * 1024));
+  await eventually(() => savedText(room).length === text(owner).length, "Initial text was not saved.");
+  const returning = await peer(t, room);
+  assert.equal(text(returning).length, text(owner).length);
+  returning.socket.disconnect();
+  // A deletion-only delta has no new struct clocks. The server must supply its
+  // full state vector, or the client would upload the entire document again.
+  text(owner).delete(0, 10);
+  await eventually(() => savedText(room).length === text(owner).length, "Online deletion was not saved.");
+  text(returning).insert(text(returning).length, "|OFFLINE");
+  returning.incomingChunks.length = 0;
+  returning.outgoingChunks.length = 0;
+  returning.socket.connect();
+  await eventually(() => returning.syncCount === 2, "Delta synchronization did not finish.");
+  await eventually(() => text(owner).toString().endsWith("|OFFLINE"), "Offline edit was not uploaded.");
+  assert.equal(hash(text(returning).toString()), hash(text(owner).toString()));
+  assert.equal(hash(savedText(room)), hash(text(owner).toString()));
+  assert.equal(text(owner).length, 2 * 1024 * 1024 - 10 + "|OFFLINE".length);
+  const downloaded = returning.incomingChunks.reduce((sum, size) => sum + size, 0);
+  const uploaded = returning.outgoingChunks.reduce((sum, size) => sum + size, 0);
+  assert.ok(downloaded < 1024, `Downloaded the existing document again: ${downloaded} bytes`);
+  assert.ok(uploaded < 1024, `Uploaded the existing document again: ${uploaded} bytes`);
+  t.diagnostic(`2 MiB reconnect: ${downloaded} bytes downloaded, ${uploaded} bytes uploaded`);
+  assert.equal(getOrCreateDoc(room).store.pendingStructs, null);
+  assert.deepEqual([...owner.errors, ...returning.errors], []);
+});
+
 test("a rejected update retries without disconnecting or losing subsequent local edits", async (t) => {
   const room = roomName();
   const sender = await peer(t, room);
   const receiver = await peer(t, room);
   let corrupted = false;
   const corruptOnce = (event, chunk) => {
-    if (event === "document:chunk" && !corrupted) {
+    if (event === "document:chunk" && chunk.index === 2 && !corrupted) {
       corrupted = true;
       chunk.data = new Uint8Array([255]);
     }
   };
   sender.socket.onAnyOutgoing(corruptOnce);
-  text(sender).insert(0, "retained edit");
+  text(sender).insert(0, "retained edit|" + "x".repeat(2 * 1024 * 1024));
   await eventually(() => sender.lastError !== null, "The rejected update was not reported.");
   sender.socket.offAnyOutgoing(corruptOnce);
   text(sender).insert(text(sender).length, "|typed during retry");

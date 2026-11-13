@@ -33,11 +33,11 @@ export function registerDocumentSync(io: Server) {
     socket.on(
       "join_room",
       (
-        payload: { room: string; documentSyncId?: string },
+        payload: { room: string; documentSyncId?: string; stateVector?: Uint8Array },
         ack?: (result: DocumentAck) => void,
       ) => {
         try {
-          const { room, documentSyncId } = payload ?? {};
+          const { room, documentSyncId, stateVector } = payload ?? {};
           if (
             typeof room !== "string" || !room ||
             (documentSyncId !== undefined &&
@@ -52,14 +52,18 @@ export function registerDocumentSync(io: Server) {
           socket.data.room = room;
           socket.data.documentSyncId = documentSyncId;
 
-          const state = Y.encodeStateAsUpdate(getOrCreateDoc(room));
+          const doc = getOrCreateDoc(room);
           if (documentSyncId) {
+            const state = Y.encodeStateAsUpdate(
+              doc,
+              stateVector === undefined ? undefined : normalizeDocumentBytes(stateVector),
+            );
             const chunks = documentChunks(state, room, documentSyncId, "sync");
-            ack?.({ ok: true });
+            ack?.({ ok: true, stateVector: Y.encodeStateVector(doc) });
             chunks.forEach((chunk) => socket.emit("document:chunk", chunk));
           } else {
             // Retain compatibility while older browser sessions are open.
-            socket.emit("sync", state);
+            socket.emit("sync", Y.encodeStateAsUpdate(doc));
             ack?.({ ok: true });
           }
         } catch (error) {

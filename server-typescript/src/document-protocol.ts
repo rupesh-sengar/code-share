@@ -12,7 +12,12 @@ export type DocumentChunk = {
   data: Uint8Array;
 };
 
-export type DocumentAck = { ok: boolean; message?: string; retryable?: boolean };
+export type DocumentAck = {
+  ok: boolean;
+  message?: string;
+  retryable?: boolean;
+  stateVector?: Uint8Array;
+};
 
 export class DocumentSizeError extends Error {}
 

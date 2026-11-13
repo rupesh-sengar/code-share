@@ -7,7 +7,11 @@ import {
   documentChunks,
   DOCUMENT_TIMEOUT_MS,
   MAX_DOCUMENT_UPDATE_SIZE,
+  normalizeDocumentBytes,
 } from "./document-protocol";
+
+// Keep up to 1 MiB in flight instead of paying one network round trip per chunk.
+export const DOCUMENT_UPLOAD_WINDOW = 16;
 
 export function createDocumentSync(
   socket: Socket,
@@ -23,6 +27,7 @@ export function createDocumentSync(
   let generation = 0;
   let transferId = 0;
   let syncId = "";
+  let serverStateVector: Uint8Array | undefined;
   let ready = false;
   let sending = false;
   let blockedBySize = false;
@@ -36,6 +41,7 @@ export function createDocumentSync(
     sending = false;
     blockedBySize = false;
     queue = [];
+    serverStateVector = undefined;
     assembler.clear();
     clearTimeout(retryTimer);
     clearTimeout(syncTimer);
@@ -48,6 +54,25 @@ export function createDocumentSync(
       retryTimer = setTimeout(join, 1000);
     }
   };
+
+  const sendChunk = (chunk: DocumentChunk, activeGeneration: number) =>
+    new Promise<void>((resolve, reject) => {
+      if (activeGeneration !== generation || !socket.connected || disposed) {
+        resolve();
+        return;
+      }
+      socket.timeout(DOCUMENT_TIMEOUT_MS).emit(
+        "document:chunk",
+        chunk,
+        (error: Error | null, ack?: DocumentAck) => {
+          if (error || !ack?.ok) {
+            reject(error || new Error(ack?.message || "Text was not saved."));
+          } else {
+            resolve();
+          }
+        },
+      );
+    });
 
   const sendQueuedUpdates = async () => {
     if (sending || !ready || !socket.connected || disposed) return;
@@ -62,23 +87,16 @@ export function createDocumentSync(
           `${doc.clientID}-${++transferId}`,
           "update",
         );
-        for (const chunk of chunks) {
+        for (let start = 0; start < chunks.length; start += DOCUMENT_UPLOAD_WINDOW) {
           if (activeGeneration !== generation || !socket.connected || disposed) {
             return;
           }
-          await new Promise<void>((resolve, reject) => {
-            socket.timeout(DOCUMENT_TIMEOUT_MS).emit(
-              "document:chunk",
-              chunk,
-              (error: Error | null, ack?: DocumentAck) => {
-                if (error || !ack?.ok) {
-                  reject(error || new Error(ack?.message || "Text was not saved."));
-                } else {
-                  resolve();
-                }
-              },
-            );
-          });
+          // Socket.IO keeps these ordered. Bound outstanding acknowledgements,
+          // and finish this update before starting another one.
+          await Promise.all(
+            chunks.slice(start, start + DOCUMENT_UPLOAD_WINDOW)
+              .map((chunk) => sendChunk(chunk, activeGeneration)),
+          );
           if (activeGeneration !== generation) return;
         }
       }
@@ -115,7 +133,7 @@ export function createDocumentSync(
     waitForSync();
     socket.timeout(DOCUMENT_TIMEOUT_MS).emit(
       "join_room",
-      { room, user, documentSyncId: syncId },
+      { room, user, documentSyncId: syncId, stateVector: Y.encodeStateVector(doc) },
       (error: Error | null, ack?: DocumentAck) => {
         if (activeGeneration !== generation || disposed) return;
         if (error || !ack?.ok) {
@@ -126,6 +144,14 @@ export function createDocumentSync(
             return;
           }
           retry(ack?.message || "Could not synchronize this room.");
+          return;
+        }
+        try {
+          serverStateVector = ack.stateVector
+            ? normalizeDocumentBytes(ack.stateVector)
+            : undefined;
+        } catch (error) {
+          retry("Could not read the room synchronization state.");
           return;
         }
         socket.emit("joined_user", { room, user });
@@ -144,9 +170,12 @@ export function createDocumentSync(
       Y.applyUpdate(doc, update, remoteOrigin);
       if (chunk.kind === "sync") {
         clearTimeout(syncTimer);
-        // The snapshot tells us exactly which local edits the server lacks,
-        // including edits made offline or while joining the room.
-        const missing = Y.encodeStateAsUpdate(doc, Y.encodeStateVectorFromUpdate(update));
+        // The server vector covers its entire document even when it sends only
+        // a delta. Fall back to the snapshot for older backend versions.
+        const missing = Y.encodeStateAsUpdate(
+          doc,
+          serverStateVector ?? Y.encodeStateVectorFromUpdate(update),
+        );
         ready = true;
         onError(null);
         if (missing.byteLength > 2) enqueue(missing);
