@@ -3,8 +3,9 @@ import { MonacoBinding } from "y-monaco";
 import { useEffect, useRef, useState } from "react";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import socket from "../../utils/socket";
-import { createDocumentSync } from "../../utils/document-sync";
+import { createDocumentSync, DocumentTransferProgress } from "../../utils/document-sync";
 import { normalizeDocumentBytes } from "../../utils/document-protocol";
+import TransferIndicator from "./transfer-indicator";
 import "./text-area.scss";
 import {
   Awareness,
@@ -20,10 +21,12 @@ interface TextAreaProps {
 const TextArea = ({ room, currentUser }: TextAreaProps) => {
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [transferProgress, setTransferProgress] = useState<DocumentTransferProgress | null>(null);
 
   useEffect(() => {
     if (!room) return;
     setSyncError(null);
+    setTransferProgress(null);
 
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("monaco");
@@ -80,6 +83,7 @@ const TextArea = ({ room, currentUser }: TextAreaProps) => {
         "awareness",
         encodeAwarenessUpdate(awareness, [awareness.clientID]),
       ),
+      setTransferProgress,
     );
 
     const editor = monaco.editor.create(editorContainerRef.current!, {
@@ -212,6 +216,7 @@ const TextArea = ({ room, currentUser }: TextAreaProps) => {
 
   return (
     <>
+      <TransferIndicator progress={transferProgress} />
       {syncError && (
         <div className="editor-sync-error" role="alert">{syncError}</div>
       )}

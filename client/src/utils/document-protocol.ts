@@ -9,7 +9,16 @@ export type DocumentChunk = {
   kind: "sync" | "update";
   index: number;
   total: number;
+  size?: number;
   data: Uint8Array;
+};
+
+export type IncomingDocumentProgress = {
+  room: string;
+  id: string;
+  phase: "uploading" | "preparing" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number;
 };
 
 export type DocumentAck = {
@@ -50,6 +59,7 @@ export function documentChunks(
       kind,
       index,
       total,
+      size: bytes.byteLength,
       data: bytes.subarray(
         index * DOCUMENT_CHUNK_SIZE,
         (index + 1) * DOCUMENT_CHUNK_SIZE,
@@ -81,12 +91,18 @@ export class DocumentAssembler {
       !Number.isSafeInteger(chunk.total) ||
       chunk.total < 1 ||
       chunk.total > MAX_DOCUMENT_UPDATE_SIZE / DOCUMENT_CHUNK_SIZE ||
+      (chunk.size !== undefined &&
+        (!Number.isSafeInteger(chunk.size) || chunk.size < 1 ||
+          chunk.size > MAX_DOCUMENT_UPDATE_SIZE ||
+          Math.ceil(chunk.size / DOCUMENT_CHUNK_SIZE) !== chunk.total)) ||
       !Number.isSafeInteger(chunk.index) ||
       chunk.index < 0 ||
       chunk.index >= chunk.total ||
       data.byteLength < 1 ||
       data.byteLength > DOCUMENT_CHUNK_SIZE ||
-      (chunk.index < chunk.total - 1 && data.byteLength !== DOCUMENT_CHUNK_SIZE)
+      (chunk.index < chunk.total - 1 && data.byteLength !== DOCUMENT_CHUNK_SIZE) ||
+      (chunk.size !== undefined && chunk.index === chunk.total - 1 &&
+        data.byteLength !== chunk.size - chunk.index * DOCUMENT_CHUNK_SIZE)
     ) {
       this.clear();
       throw new Error("Invalid document chunk.");
@@ -101,6 +117,7 @@ export class DocumentAssembler {
       this.current.room !== chunk.room ||
       this.current.kind !== chunk.kind ||
       this.current.total !== chunk.total ||
+      this.current.size !== chunk.size ||
       chunk.index !== this.chunks.length
     ) {
       this.clear();

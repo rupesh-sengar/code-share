@@ -4,7 +4,9 @@ import {
   DocumentAck,
   DocumentAssembler,
   DocumentChunk,
+  IncomingDocumentProgress,
   documentChunks,
+  DOCUMENT_CHUNK_SIZE,
   DOCUMENT_TIMEOUT_MS,
   MAX_DOCUMENT_UPDATE_SIZE,
   normalizeDocumentBytes,
@@ -13,6 +15,13 @@ import {
 // Keep up to 1 MiB in flight instead of paying one network round trip per chunk.
 export const DOCUMENT_UPLOAD_WINDOW = 16;
 
+export type DocumentTransferProgress = {
+  id: string;
+  phase: "waiting" | "uploading" | "preparing" | "receiving" | "applying" | "complete" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number | null;
+};
+
 export function createDocumentSync(
   socket: Socket,
   doc: Y.Doc,
@@ -20,6 +29,7 @@ export function createDocumentSync(
   user: string,
   onError: (message: string | null) => void,
   onSynced: () => void = () => {},
+  onProgress: (progress: DocumentTransferProgress | null) => void = () => {},
 ) {
   const remoteOrigin = Symbol("remote-document");
   const assembler = new DocumentAssembler();
@@ -34,6 +44,20 @@ export function createDocumentSync(
   let queue: Uint8Array[] = [];
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let syncTimer: ReturnType<typeof setTimeout> | undefined;
+  let progress: DocumentTransferProgress | null = null;
+  let lastProgressAt = 0;
+  let applications: { chunk: DocumentChunk; update: Uint8Array; showProgress: boolean }[] = [];
+  let applying = false;
+  let cancelPaintWait: (() => void) | undefined;
+
+  const reportProgress = (next: DocumentTransferProgress | null) => {
+    const changed = next?.id !== progress?.id || next?.phase !== progress?.phase;
+    progress = next;
+    if (!disposed && (changed || next === null || Date.now() - lastProgressAt >= 100)) {
+      lastProgressAt = Date.now();
+      onProgress(next);
+    }
+  };
 
   const reset = () => {
     generation++;
@@ -45,6 +69,10 @@ export function createDocumentSync(
     assembler.clear();
     clearTimeout(retryTimer);
     clearTimeout(syncTimer);
+    applications = [];
+    applying = false;
+    cancelPaintWait?.();
+    reportProgress(null);
   };
 
   const retry = (message: string) => {
@@ -130,6 +158,7 @@ export function createDocumentSync(
     if (!socket.connected || disposed) return;
     const activeGeneration = generation;
     syncId = `${doc.clientID}-sync-${generation}`;
+    reportProgress({ id: syncId, phase: "waiting", receivedBytes: 0, totalBytes: null });
     waitForSync();
     socket.timeout(DOCUMENT_TIMEOUT_MS).emit(
       "join_room",
@@ -159,31 +188,105 @@ export function createDocumentSync(
     );
   }
 
-  const receiveChunk = (chunk: DocumentChunk) => {
-    if (!chunk || chunk.room !== room || (chunk.kind === "sync" && chunk.id !== syncId)) {
-      return;
+  // Give React and the browser a paint before applying a large Yjs update to
+  // Monaco. Otherwise the "Finishing" state would be hidden by the same work
+  // that blocks the editor. Cancel on room changes, disconnects and disposal.
+  const beforePaint = () => new Promise<void>((resolve) => {
+    let frame: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      clearTimeout(timer);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      cancelPaintWait = undefined;
+      resolve();
+    };
+    cancelPaintWait = finish;
+    if (typeof requestAnimationFrame === "function") {
+      // Animation frames pause in background tabs; keep synchronization moving.
+      timer = setTimeout(finish, 100);
+      frame = requestAnimationFrame(() => {
+        clearTimeout(timer);
+        timer = setTimeout(finish, 0);
+      });
+    } else {
+      timer = setTimeout(finish, 0);
     }
+  });
+
+  const applyIncomingUpdates = async () => {
+    if (applying || disposed) return;
+    const activeGeneration = generation;
+    applying = true;
+    try {
+      while (applications.length) {
+        const { chunk, update, showProgress } = applications.shift()!;
+        if (showProgress) {
+          reportProgress({
+            id: chunk.id, phase: "applying",
+            receivedBytes: update.byteLength, totalBytes: update.byteLength,
+          });
+          await beforePaint();
+        }
+        if (disposed || activeGeneration !== generation) return;
+        Y.applyUpdate(doc, update, remoteOrigin);
+        if (chunk.kind === "sync") {
+          clearTimeout(syncTimer);
+          // The server vector covers the whole document, including when the
+          // downloaded update is just a delta. Older backends send a snapshot.
+          const missing = Y.encodeStateAsUpdate(
+            doc, serverStateVector ?? Y.encodeStateVectorFromUpdate(update),
+          );
+          ready = true;
+          onError(null);
+          if (missing.byteLength > 2) enqueue(missing);
+          if (ready) onSynced();
+        }
+        if (disposed || activeGeneration !== generation) return;
+        if (showProgress) {
+          reportProgress({
+            id: chunk.id, phase: "complete",
+            receivedBytes: update.byteLength, totalBytes: update.byteLength,
+          });
+        }
+      }
+    } catch (error) {
+      if (!disposed && activeGeneration === generation) {
+        retry(error instanceof Error ? error.message : "Could not read shared text.");
+      }
+    } finally {
+      if (activeGeneration === generation) applying = false;
+    }
+  };
+
+  const receiveChunk = (chunk: DocumentChunk) => {
+    if (!chunk || chunk.room !== room || (chunk.kind === "sync" && chunk.id !== syncId)) return;
     try {
       const update = assembler.accept(chunk);
       if (!ready) waitForSync();
-      if (!update) return;
-      Y.applyUpdate(doc, update, remoteOrigin);
-      if (chunk.kind === "sync") {
-        clearTimeout(syncTimer);
-        // The server vector covers its entire document even when it sends only
-        // a delta. Fall back to the snapshot for older backend versions.
-        const missing = Y.encodeStateAsUpdate(
-          doc,
-          serverStateVector ?? Y.encodeStateVectorFromUpdate(update),
-        );
-        ready = true;
-        onError(null);
-        if (missing.byteLength > 2) enqueue(missing);
-        if (ready) onSynced();
+      const showProgress = chunk.total > 1 || chunk.kind === "sync";
+      if (showProgress && !applying) {
+        reportProgress({
+          id: chunk.id, phase: "receiving",
+          receivedBytes: chunk.index * DOCUMENT_CHUNK_SIZE + normalizeDocumentBytes(chunk.data).byteLength,
+          totalBytes: update?.byteLength ?? chunk.size ?? chunk.total * DOCUMENT_CHUNK_SIZE,
+        });
+      }
+      if (update) {
+        applications.push({ chunk, update, showProgress });
+        void applyIncomingUpdates();
       }
     } catch (error) {
       retry(error instanceof Error ? error.message : "Could not read shared text.");
     }
+  };
+
+  const receiveUploadProgress = (incoming: IncomingDocumentProgress) => {
+    if (!incoming || incoming.room !== room || applying) return;
+    if (incoming.phase === "interrupted" && progress?.id !== incoming.id) return;
+    reportProgress({
+      id: incoming.id, phase: incoming.phase,
+      receivedBytes: incoming.receivedBytes, totalBytes: incoming.totalBytes,
+    });
   };
 
   const sendLocalUpdate = (update: Uint8Array, origin: unknown) => {
@@ -199,6 +302,7 @@ export function createDocumentSync(
 
   doc.on("update", sendLocalUpdate);
   socket.on("document:chunk", receiveChunk);
+  socket.on("document:incoming", receiveUploadProgress);
   socket.on("connect", join);
   socket.on("disconnect", reset);
   if (socket.connected) join();
@@ -208,6 +312,7 @@ export function createDocumentSync(
     reset();
     doc.off("update", sendLocalUpdate);
     socket.off("document:chunk", receiveChunk);
+    socket.off("document:incoming", receiveUploadProgress);
     socket.off("connect", join);
     socket.off("disconnect", reset);
   };

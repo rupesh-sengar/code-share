@@ -46,6 +46,7 @@ async function peer(t, room, transports = ["websocket"], initialText = "") {
   const outgoingChunks = [];
   const incomingChunks = [];
   const connectionErrors = [];
+  const progressEvents = [];
   let syncCount = 0;
   let disconnects = 0;
   let lastError = null;
@@ -58,7 +59,7 @@ async function peer(t, room, transports = ["websocket"], initialText = "") {
   const stop = createDocumentSync(socket, doc, room, "Test user", (error) => {
     lastError = error;
     if (error) errors.push(error);
-  }, () => syncCount++);
+  }, () => syncCount++, (progress) => progressEvents.push(progress));
   t.after(() => { stop(); socket.disconnect(); doc.destroy(); });
   if (initialText) doc.getText("monaco").insert(0, initialText);
   socket.connect();
@@ -69,7 +70,7 @@ async function peer(t, room, transports = ["websocket"], initialText = "") {
     throw error;
   }
   return {
-    socket, doc, errors, outgoingChunks, incomingChunks, stop,
+    socket, doc, errors, outgoingChunks, incomingChunks, progressEvents, stop,
     get syncCount() { return syncCount; },
     get disconnects() { return disconnects; },
     get lastError() { return lastError; },
@@ -87,6 +88,14 @@ for (const transport of ["websocket", "polling"]) {
     await eventually(() => text(receiver).length === content.length, "Large paste was not delivered.");
     assert.equal(hash(text(receiver).toString()), hash(content));
     assert.equal(hash(savedText(room)), hash(content));
+    const stages = receiver.progressEvents.filter((event) => event?.totalBytes > 2_000_000);
+    for (const phase of ["uploading", "preparing", "receiving", "applying", "complete"]) {
+      assert.ok(stages.some((event) => event.phase === phase), `Missing incoming ${phase} indicator.`);
+    }
+    assert.equal(stages.at(-1).phase, "complete");
+    assert.equal(stages.at(-1).receivedBytes, stages.at(-1).totalBytes);
+    assert.ok(stages.findIndex((event) => event.phase === "uploading") <
+      stages.findIndex((event) => event.phase === "receiving"), "Upload was invisible until download started.");
 
     // Edits and deletions following a large transfer must remain usable.
     text(sender).insert(0, "prefix|");
@@ -163,6 +172,8 @@ test("a dropped connection mid-paste recovers offline and concurrent remote edit
   text(sender).insert(text(sender).length, "x".repeat(3_000_000));
   await eventually(() => sender.disconnects === 1, "The test did not interrupt the transport.");
   sender.socket.offAnyOutgoing(interrupt);
+  await eventually(() => receiver.progressEvents.some((event) => event?.phase === "interrupted"),
+    "The receiver was not told the incoming upload was interrupted.");
   text(sender).insert(0, "OFFLINE|");
   text(receiver).insert(0, "REMOTE|");
   await eventually(() => savedText(room).includes("REMOTE|"), "Remote edit was not saved.");
@@ -278,6 +289,7 @@ test("invalid, incomplete and foreign-room chunks are rejected without breaking 
     { ...base, total: 1_000_000 },
     { ...base, kind: "sync" },
     { ...base, data: new Uint8Array([255]) },
+    { ...base, size: 1 },
   ]) {
     assert.equal((await emitWithAck(sender.socket, "document:chunk", chunk)).ok, false);
   }
@@ -291,6 +303,48 @@ test("invalid, incomplete and foreign-room chunks are rejected without breaking 
   text(sender).insert(0, "valid edit");
   await eventually(() => savedText(room) === "valid edit", "Invalid chunks broke later updates.");
   assert.ok(sender.socket.connected);
+});
+
+test("incoming text still applies when background tabs pause animation frames", async (t) => {
+  const room = roomName();
+  const sender = await peer(t, room);
+  const receiver = await peer(t, room);
+  const previousRequest = global.requestAnimationFrame;
+  const previousCancel = global.cancelAnimationFrame;
+  global.requestAnimationFrame = () => 1;
+  global.cancelAnimationFrame = () => {};
+  t.after(() => {
+    global.requestAnimationFrame = previousRequest;
+    global.cancelAnimationFrame = previousCancel;
+  });
+  text(sender).insert(0, "x".repeat(200_000));
+  await eventually(() => receiver.progressEvents.some((event) =>
+    event?.phase === "applying" && event.totalBytes > 100_000), "Finishing status was not reported before applying text.");
+  assert.equal(text(receiver).length, 0, "Applying text did not allow the indicator to paint first.");
+  await eventually(() => text(receiver).length === 200_000, "A paused frame left incoming text stuck.");
+  assert.equal(receiver.progressEvents.at(-1).phase, "complete");
+});
+
+test("disposing an editor cancels a pending apply and progress callbacks", async (t) => {
+  const room = roomName();
+  const sender = await peer(t, room);
+  const receiver = await peer(t, room);
+  const previousRequest = global.requestAnimationFrame;
+  const previousCancel = global.cancelAnimationFrame;
+  global.requestAnimationFrame = () => 1;
+  global.cancelAnimationFrame = () => {};
+  t.after(() => {
+    global.requestAnimationFrame = previousRequest;
+    global.cancelAnimationFrame = previousCancel;
+  });
+  text(sender).insert(0, "x".repeat(200_000));
+  await eventually(() => receiver.progressEvents.some((event) =>
+    event?.phase === "applying" && event.totalBytes > 100_000), "No pending update to cancel.");
+  receiver.stop();
+  const eventCount = receiver.progressEvents.length;
+  await sleep(150);
+  assert.equal(text(receiver).length, 0);
+  assert.equal(receiver.progressEvents.length, eventCount);
 });
 
 test("legacy clients can exchange edits with the new binary transport", async (t) => {

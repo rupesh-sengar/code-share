@@ -9,6 +9,10 @@ The server applies and broadcasts an update only after every chunk arrives.
 On joining or reconnecting, both peers exchange Yjs state vectors and send only
 missing changes. A new participant still downloads the full current document.
 Edits made offline remain in the open editor until synchronization resumes.
+An incoming-text indicator shows the sender's upload, the receiver's download
+percentage and bytes remaining, and a separate finishing stage while the editor
+applies the text. Interrupted transfers are reported and completed indicators
+clear automatically. Ordinary single-message edits do not display the indicator.
 
 A single update or synchronization snapshot is limited to 256 MiB to bound
 incomplete-transfer memory. Failures appear above the editor. Transient failures

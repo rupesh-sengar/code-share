@@ -6,6 +6,9 @@ import {
   DocumentAssembler,
   DocumentChunk,
   DocumentSizeError,
+  IncomingDocumentProgress,
+  DOCUMENT_CHUNK_SIZE,
+  DOCUMENT_TIMEOUT_MS,
   documentChunks,
   normalizeDocumentBytes,
 } from "./document-protocol";
@@ -13,8 +16,10 @@ import {
 export function registerDocumentSync(io: Server) {
   let transferId = 0;
 
-  const broadcastUpdate = (sender: Socket, room: string, update: Uint8Array) => {
-    const id = `${sender.id}-${++transferId}`;
+  const broadcastUpdate = (
+    sender: Socket, room: string, update: Uint8Array,
+    id = `${sender.id}-${++transferId}`,
+  ) => {
     const chunks = documentChunks(update, room, id, "update");
     for (const peerId of io.sockets.adapter.rooms.get(room) ?? []) {
       if (peerId === sender.id) continue;
@@ -29,6 +34,47 @@ export function registerDocumentSync(io: Server) {
 
   io.on("connection", (socket) => {
     const assembler = new DocumentAssembler();
+    let incoming: IncomingDocumentProgress | undefined;
+    let lastProgressAt = 0;
+    let uploadTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const interruptUpload = () => {
+      clearTimeout(uploadTimer);
+      if (incoming) {
+        socket.to(incoming.room).emit("document:incoming", {
+          ...incoming, phase: "interrupted",
+        });
+        incoming = undefined;
+      }
+    };
+
+    const reportUpload = (chunk: DocumentChunk, complete: boolean) => {
+      if (chunk.index === 0) {
+        interruptUpload();
+        if (chunk.total > 1) {
+          incoming = {
+            room: chunk.room,
+            id: `${socket.id}-${++transferId}`,
+            phase: "uploading",
+            receivedBytes: 0,
+            totalBytes: chunk.size ?? chunk.total * DOCUMENT_CHUNK_SIZE,
+          };
+          lastProgressAt = 0;
+        }
+      }
+      if (!incoming) return;
+      incoming.receivedBytes += normalizeDocumentBytes(chunk.data).byteLength;
+      if (complete) {
+        incoming.totalBytes = incoming.receivedBytes;
+        incoming.phase = "preparing";
+      }
+      if (complete || Date.now() - lastProgressAt >= 100) {
+        socket.to(chunk.room).emit("document:incoming", { ...incoming });
+        lastProgressAt = Date.now();
+      }
+      clearTimeout(uploadTimer);
+      if (!complete) uploadTimer = setTimeout(interruptUpload, DOCUMENT_TIMEOUT_MS);
+    };
 
     socket.on(
       "join_room",
@@ -46,6 +92,7 @@ export function registerDocumentSync(io: Server) {
             throw new Error("Invalid room synchronization request.");
           }
           const previousRoom = socket.data.room;
+          interruptUpload();
           if (previousRoom && previousRoom !== room) socket.leave(previousRoom);
           assembler.clear();
           socket.join(room);
@@ -76,12 +123,12 @@ export function registerDocumentSync(io: Server) {
       },
     );
 
-    const applyUpdate = (room: string, update: Uint8Array) => {
+    const applyUpdate = (room: string, update: Uint8Array, id?: string) => {
       if (!room || room !== socket.data.room || !socket.rooms.has(room)) {
         throw new Error("Join the room before sending text.");
       }
       Y.applyUpdate(getOrCreateDoc(room), update);
-      broadcastUpdate(socket, room, update);
+      broadcastUpdate(socket, room, update, id);
     };
 
     socket.on("document:chunk", (chunk: DocumentChunk, ack?: (result: DocumentAck) => void) => {
@@ -90,11 +137,16 @@ export function registerDocumentSync(io: Server) {
           throw new Error("Join the room before sending text.");
         }
         const update = assembler.accept(chunk);
-        if (update) applyUpdate(chunk.room, update);
+        reportUpload(chunk, update !== null);
+        if (update) {
+          applyUpdate(chunk.room, update, incoming?.id);
+          incoming = undefined;
+        }
         // The final acknowledgement means the entire Yjs update was applied.
         ack?.({ ok: true });
       } catch (error) {
         assembler.clear();
+        interruptUpload();
         ack?.({ ok: false, message: (error as Error).message });
       }
     });
@@ -111,6 +163,7 @@ export function registerDocumentSync(io: Server) {
 
     socket.on("disconnect", (reason) => {
       assembler.clear();
+      interruptUpload();
       console.log("User disconnected:", socket.id, reason);
     });
   });
