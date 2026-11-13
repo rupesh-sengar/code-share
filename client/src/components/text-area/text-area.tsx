@@ -1,8 +1,11 @@
 import * as Y from "yjs";
 import { MonacoBinding } from "y-monaco";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import socket from "../../utils/socket";
+import { createDocumentSync } from "../../utils/document-sync";
+import { normalizeDocumentBytes } from "../../utils/document-protocol";
+import "./text-area.scss";
 import {
   Awareness,
   encodeAwarenessUpdate,
@@ -16,14 +19,15 @@ interface TextAreaProps {
 
 const TextArea = ({ room, currentUser }: TextAreaProps) => {
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!room) return;
+    setSyncError(null);
 
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("monaco");
     const awareness = new Awareness(ydoc);
-    const remoteDocOrigin = Symbol("remote-doc");
     const remoteAwarenessOrigin = Symbol("remote-awareness");
 
     const userColor =
@@ -35,25 +39,6 @@ const TextArea = ({ room, currentUser }: TextAreaProps) => {
       name: currentUser,
       color: userColor,
     });
-
-    const normalize = (data: ArrayBuffer | Uint8Array | number[]) =>
-      data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
-
-    const handleSync = (state: ArrayBuffer | Uint8Array | number[]) => {
-      Y.applyUpdate(ydoc, normalize(state), remoteDocOrigin);
-    };
-    socket.on("sync", handleSync);
-
-    const handleDocUpdate = (update: ArrayBuffer | Uint8Array | number[]) => {
-      Y.applyUpdate(ydoc, normalize(update), remoteDocOrigin);
-    };
-    socket.on("update", handleDocUpdate);
-
-    const emitDocUpdate = (update: Uint8Array, origin: unknown) => {
-      if (origin === remoteDocOrigin) return;
-      socket.emit("update", Array.from(update));
-    };
-    ydoc.on("update", emitDocUpdate);
 
     const emitAwarenessUpdate = (
       {
@@ -67,19 +52,35 @@ const TextArea = ({ room, currentUser }: TextAreaProps) => {
       },
       origin: unknown,
     ) => {
-      if (origin === remoteAwarenessOrigin) return;
+      if (origin === remoteAwarenessOrigin || !socket.connected) return;
       const ids = added.concat(updated).concat(removed);
       const update = encodeAwarenessUpdate(awareness, ids);
-      socket.emit("awareness", Array.from(update));
+      socket.emit("awareness", update);
     };
     awareness.on("update", emitAwarenessUpdate);
 
     const handleAwarenessFromServer = (
       update: ArrayBuffer | Uint8Array | number[],
     ) => {
-      applyAwarenessUpdate(awareness, normalize(update), remoteAwarenessOrigin);
+      applyAwarenessUpdate(
+        awareness,
+        normalizeDocumentBytes(update),
+        remoteAwarenessOrigin,
+      );
     };
     socket.on("awareness", handleAwarenessFromServer);
+
+    const stopDocumentSync = createDocumentSync(
+      socket,
+      ydoc,
+      room,
+      currentUser,
+      setSyncError,
+      () => socket.emit(
+        "awareness",
+        encodeAwarenessUpdate(awareness, [awareness.clientID]),
+      ),
+    );
 
     const editor = monaco.editor.create(editorContainerRef.current!, {
       value: "",
@@ -199,24 +200,28 @@ const TextArea = ({ room, currentUser }: TextAreaProps) => {
     return () => {
       binding.destroy();
       editor.dispose();
-      ydoc.off("update", emitDocUpdate);
-      socket.off("sync", handleSync);
-      socket.off("update", handleDocUpdate);
+      stopDocumentSync();
       socket.off("awareness", handleAwarenessFromServer);
       awareness.off("update", emitAwarenessUpdate);
       awareness.off("change", updateRemoteStyles);
       if (styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+      awareness.destroy();
       ydoc.destroy();
     };
   }, [room, currentUser]);
 
   return (
-    <div
-      id="editor"
-      className="editor"
-      ref={editorContainerRef}
-      style={{ height: "100vh", width: "100vw" }}
-    />
+    <>
+      {syncError && (
+        <div className="editor-sync-error" role="alert">{syncError}</div>
+      )}
+      <div
+        id="editor"
+        className="editor"
+        ref={editorContainerRef}
+        style={{ height: "100vh", width: "100vw" }}
+      />
+    </>
   );
 };
 

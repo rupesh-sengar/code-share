@@ -5,6 +5,13 @@ $line-height: 1.25;
   background: #404040;
 }
 
+.editor-sync-error {
+  padding: 10px 16px;
+  color: #fff;
+  background: #9b3c24;
+  font-size: 14px;
+}
+
 .line-numbers {
   padding: 5px;
   color: var(--text-color);

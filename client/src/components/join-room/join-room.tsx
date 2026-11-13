@@ -6,7 +6,6 @@ import {
   updateLoggedInUser,
   updateRoom,
 } from "../../store/store";
-import socket from "../../utils/socket";
 import { z } from "zod";
 import { useState } from "react";
 
@@ -69,8 +68,6 @@ const JoinRoom = () => {
         return;
       }
 
-      socket.emit("join_room", { room, user });
-      socket.emit("joined_user", { room, user });
       dispatch(updateRoom(room));
       dispatch(updateLoggedInUser(user));
       dispatch(toggleJoinRoom(true));

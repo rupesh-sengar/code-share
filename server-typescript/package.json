@@ -7,7 +7,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test test/document-sync.test.cjs",
     "start": "nodemon src/server.ts",
     "build": "tsc && tsc-alias"
   },

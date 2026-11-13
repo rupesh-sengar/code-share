@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import TextArea from "../components/text-area/text-area";
 import NavBar from "../components/nav-bar/nav-bar";
 import JoinRoom from "../components/join-room/join-room";
@@ -30,11 +30,6 @@ const Layout = () => {
   const isJoined = useSelector((state: any) => state.joinRoom.isJoined);
   const room = useSelector((state: any) => state.joinRoom.room);
   const user = useSelector((state: any) => state.joinRoom.loggedInUser);
-  const activeSessionRef = useRef({
-    isJoined: false,
-    room: "",
-    user: "",
-  });
 
   console.log({ user });
 
@@ -58,36 +53,13 @@ const Layout = () => {
   }, [inView, animation]);
 
   useEffect(() => {
-    activeSessionRef.current = {
-      isJoined,
-      room,
-      user,
-    };
-  }, [isJoined, room, user]);
-
-  useEffect(() => {
-    const rejoinRoomIfNeeded = () => {
-      const {
-        isJoined: joinedRoom,
-        room: activeRoom,
-        user: activeUser,
-      } = activeSessionRef.current;
-
-      if (!joinedRoom || !activeRoom || !activeUser) {
-        return;
-      }
-
-      socket.emit("join_room", { room: activeRoom, user: activeUser });
-      socket.emit("joined_user", { room: activeRoom, user: activeUser });
-    };
-
     const handleConnect = () => {
       setServerStatus("connected");
       setReconnectAttempts(0);
-      rejoinRoomIfNeeded();
     };
 
-    const handleDisconnect = () => {
+    const handleDisconnect = (reason: string) => {
+      console.warn("Server disconnected:", reason);
       setServerStatus("disconnected");
     };
 
